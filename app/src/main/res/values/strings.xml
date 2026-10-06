@@ -1159,4 +1159,48 @@
     <string name="rr_save_error">The rule could not be saved. Your edits remain available.</string>
     <string name="rr_reload_error">Rule saved, but the running service could not reload. Reconnect the service.</string>
 
+
+    <!-- Connections viewer -->
+    <string name="menu_connections">Connections</string>
+    <string name="connections_empty">No connections</string>
+    <string name="connections_filter">Filter</string>
+    <string name="connections_filter_all">All</string>
+    <string name="connection_status_active">Active</string>
+    <string name="connection_status_closed">Closed</string>
+    <string name="connections_sort">Sort</string>
+    <string name="connections_sort_time">Creation time</string>
+    <string name="connections_sort_upload">Uploaded</string>
+    <string name="connections_sort_download">Downloaded</string>
+    <string name="connections_sort_total">Total traffic</string>
+    <string name="connections_sort_host">Host</string>
+    <string name="connections_sort_ascending">Ascending</string>
+    <string name="connections_sort_descending">Descending</string>
+    <string name="connections_close_all">Close all connections</string>
+    <string name="connections_close_all_confirm">Close all active connections?</string>
+    <string name="connection_close">Close connection</string>
+    <string name="connection_already_closed">This connection is already closed</string>
+    <string name="connection_details">Connection details</string>
+    <string name="connection_basic_info">Basic information</string>
+    <string name="connection_status">Status</string>
+    <string name="connection_created_at">Created at</string>
+    <string name="connection_closed_at">Closed at</string>
+    <string name="connection_upload">Upload</string>
+    <string name="connection_download">Download</string>
+    <string name="connection_metadata">Metadata</string>
+    <string name="connection_inbound">Inbound</string>
+    <string name="connection_inbound_type">Inbound type</string>
+    <string name="connection_ip_version">IP version</string>
+    <string name="connection_network">Network</string>
+    <string name="connection_source">Source</string>
+    <string name="connection_destination">Destination</string>
+    <string name="connection_domain">Domain</string>
+    <string name="connection_protocol">Protocol</string>
+    <string name="connection_rule">Matched rule</string>
+    <string name="connection_outbound">Outbound</string>
+    <string name="connection_outbound_type">Outbound type</string>
+    <string name="connection_process_info">Process information</string>
+    <string name="connection_user_id">User ID</string>
+    <string name="connection_user_name">User name</string>
+    <string name="connection_package_name">Package name</string>
+    <string name="connection_process_path">Process path</string>
 </resources>

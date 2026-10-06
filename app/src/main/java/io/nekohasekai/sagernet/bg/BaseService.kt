@@ -247,6 +247,29 @@ class BaseService {
             }
         }
 
+        private fun runningBox(): libcore.BoxInstance? =
+            runCatching { data?.proxy?.box }.getOrNull()
+
+        override fun queryConnections(filter: Int): String {
+            val box = runningBox() ?: return "{\"connections\":[]}"
+            return try {
+                box.queryConnections(filter)
+            } catch (e: Exception) {
+                Logs.w(e)
+                "{\"connections\":[]}"
+            }
+        }
+
+        override fun closeConnection(id: String): Boolean {
+            val box = runningBox() ?: return false
+            return runCatching { box.closeConnection(id) }.getOrDefault(false)
+        }
+
+        override fun closeAllConnections() {
+            val box = runningBox() ?: return
+            runCatching { box.closeAllConnections() }.onFailure { Logs.w(it) }
+        }
+
         fun stateChanged(s: State, msg: String?) = launch {
             val profileName = profileName
             broadcast { it.stateChanged(s.ordinal, profileName, msg) }

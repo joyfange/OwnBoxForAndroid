@@ -31,6 +31,10 @@
             android:icon="@drawable/ic_baseline_bug_report_24"
             android:title="@string/menu_log" />
         <item
+            android:id="@+id/nav_connections"
+            android:icon="@drawable/ic_baseline_swap_horiz_24"
+            android:title="@string/menu_connections" />
+        <item
             android:id="@+id/nav_tools"
             android:icon="@drawable/baseline_construction_24"
             android:title="@string/menu_tools" />

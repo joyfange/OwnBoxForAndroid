@@ -14,4 +14,10 @@ interface ISagerNetService {
   int urlTest();
   int urlTestCustomUrl(String url, int timeoutMs);
   oneway void postNotificationSpeed(in SpeedDisplayData speed);
+
+  // Connections viewer: JSON snapshot from the core's traffic tracker.
+  // filter: 1 = active, 2 = closed, 3 = all.
+  String queryConnections(int filter);
+  boolean closeConnection(String id);
+  oneway void closeAllConnections();
 }

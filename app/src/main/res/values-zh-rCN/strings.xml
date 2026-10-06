@@ -1075,4 +1075,48 @@
     <string name="rr_save_error">规则保存失败，编辑内容仍保留。</string>
     <string name="rr_reload_error">规则已保存，但运行中的服务重载失败，请重新连接。</string>
 
+
+    <!-- Connections viewer -->
+    <string name="menu_connections">连接</string>
+    <string name="connections_empty">暂无连接</string>
+    <string name="connections_filter">筛选</string>
+    <string name="connections_filter_all">全部</string>
+    <string name="connection_status_active">活动</string>
+    <string name="connection_status_closed">已关闭</string>
+    <string name="connections_sort">排序</string>
+    <string name="connections_sort_time">创建时间</string>
+    <string name="connections_sort_upload">上行流量</string>
+    <string name="connections_sort_download">下行流量</string>
+    <string name="connections_sort_total">总流量</string>
+    <string name="connections_sort_host">主机</string>
+    <string name="connections_sort_ascending">升序</string>
+    <string name="connections_sort_descending">降序</string>
+    <string name="connections_close_all">关闭所有连接</string>
+    <string name="connections_close_all_confirm">确定关闭所有活动连接？</string>
+    <string name="connection_close">关闭连接</string>
+    <string name="connection_already_closed">该连接已关闭</string>
+    <string name="connection_details">连接详情</string>
+    <string name="connection_basic_info">基本信息</string>
+    <string name="connection_status">状态</string>
+    <string name="connection_created_at">创建时间</string>
+    <string name="connection_closed_at">关闭时间</string>
+    <string name="connection_upload">上行</string>
+    <string name="connection_download">下行</string>
+    <string name="connection_metadata">元数据</string>
+    <string name="connection_inbound">入站</string>
+    <string name="connection_inbound_type">入站类型</string>
+    <string name="connection_ip_version">IP 版本</string>
+    <string name="connection_network">网络</string>
+    <string name="connection_source">来源</string>
+    <string name="connection_destination">目标</string>
+    <string name="connection_domain">域名</string>
+    <string name="connection_protocol">协议</string>
+    <string name="connection_rule">匹配规则</string>
+    <string name="connection_outbound">出站</string>
+    <string name="connection_outbound_type">出站类型</string>
+    <string name="connection_process_info">进程信息</string>
+    <string name="connection_user_id">用户 ID</string>
+    <string name="connection_user_name">用户名</string>
+    <string name="connection_package_name">包名</string>
+    <string name="connection_process_path">进程路径</string>
 </resources>

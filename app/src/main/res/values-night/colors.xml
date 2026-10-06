@@ -46,4 +46,6 @@
     <!-- 纯黑主题在深色模式下的颜色映射 -->
     <color name="color_ng_black_accent">#FFFFFF</color>
     <color name="color_ng_black_primary">#2C2C2E</color>
+    <color name="connection_active">#FF81C784</color>
+    <color name="connection_closed">#FF9E9E9E</color>
 </resources>

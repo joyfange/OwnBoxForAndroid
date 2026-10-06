@@ -113,6 +113,7 @@ type BoxInstance struct {
 	access sync.Mutex
 
 	*box.Box
+	ctx    context.Context
 	cancel context.CancelFunc
 	state  boxLifecycleState
 
@@ -255,6 +256,7 @@ func newSingBoxInstance(config string, localTransport LocalDNSTransport, platfor
 
 	b = &BoxInstance{
 		Box:           instance,
+		ctx:           ctx,
 		cancel:        cancel,
 		startBox:      instance.Start,
 		closeBox:      instance.Close,

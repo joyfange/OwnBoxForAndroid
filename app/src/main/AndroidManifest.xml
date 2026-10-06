@@ -379,6 +379,9 @@
             android:name="io.nekohasekai.sagernet.ui.RouteSettingsActivity"
             android:configChanges="uiMode" />
         <activity
+            android:name="io.nekohasekai.sagernet.ui.ConnectionDetailActivity"
+            android:configChanges="uiMode" />
+        <activity
             android:name="io.nekohasekai.sagernet.ui.AssetsActivity"
             android:configChanges="uiMode" />
         <activity
