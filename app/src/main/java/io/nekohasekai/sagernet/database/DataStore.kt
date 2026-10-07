@@ -357,17 +357,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var serverUserId by profileCacheStore.string(Key.SERVER_USER_ID)
     var serverPinnedCertChainSha256 by profileCacheStore.string(Key.SERVER_PINNED_CERT_CHAIN_SHA256)
 
-    var routeName by profileCacheStore.string(Key.ROUTE_NAME)
-    var routeDomain by profileCacheStore.string(Key.ROUTE_DOMAIN)
-    var routeIP by profileCacheStore.string(Key.ROUTE_IP)
-    var routePort by profileCacheStore.string(Key.ROUTE_PORT)
-    var routeSourcePort by profileCacheStore.string(Key.ROUTE_SOURCE_PORT)
-    var routeNetwork by profileCacheStore.string(Key.ROUTE_NETWORK)
-    var routeSource by profileCacheStore.string(Key.ROUTE_SOURCE)
-    var routeProtocol by profileCacheStore.string(Key.ROUTE_PROTOCOL)
-    var routeRuleset by profileCacheStore.string(Key.ROUTE_RULESET)
-    var routeOutbound by profileCacheStore.stringToInt(Key.ROUTE_OUTBOUND)
-    var routeOutboundRule by profileCacheStore.long(Key.ROUTE_OUTBOUND + "Long")
+    // In/out channel of AppListActivity (the app picker of the route rule editor).
     var routePackages by profileCacheStore.string(Key.ROUTE_PACKAGES)
 
     var frontProxy by profileCacheStore.long(Key.GROUP_FRONT_PROXY + "Long")
@@ -491,7 +481,12 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var subscriptionFilterRegex by profileCacheStore.string(Key.SUBSCRIPTION_FILTER_REGEX)
     var subscriptionServerDns by profileCacheStore.string(Key.SUBSCRIPTION_SERVER_DNS)
 
-    var rulesFirstCreate by profileCacheStore.boolean("rulesFirstCreate")
+    // Routing (ported from ThroneForAndroid): the active route profile, the jsDelivr mirror used for rule-sets and
+    // remote route profiles, and the remote route profile auto update (minutes, < 30 = off).
+    var currentRouteId by configurationStore.long(Key.CURRENT_ROUTE_ID)
+    var rulesetMirror by configurationStore.stringToInt(Key.RULESET_MIRROR) { 0 }
+    var routeAutoUpdate by configurationStore.stringToInt(Key.ROUTE_AUTO_UPDATE) { 0 }
+    var routeAutoUpdateLast by configurationStore.long(Key.ROUTE_AUTO_UPDATE_LAST)
 
     // var enableTLSFragment by configurationStore.boolean(Key.ENABLE_TLS_FRAGMENT)
 

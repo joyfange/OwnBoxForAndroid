@@ -3,6 +3,7 @@ package io.nekohasekai.sagernet.utils
 import android.os.Parcel
 import android.os.Parcelable
 import io.nekohasekai.sagernet.database.DataStore
+import io.nekohasekai.sagernet.database.RouteBackup
 import io.nekohasekai.sagernet.database.SagerDatabase
 import io.nekohasekai.sagernet.database.preference.PublicDatabase
 import io.nekohasekai.sagernet.ktx.Logs
@@ -47,11 +48,7 @@ object BackupHelper {
                 })
             }
             if (rule) {
-                put("rules", JSONArray().apply {
-                    SagerDatabase.rulesDao.allRules().forEach {
-                        put(it.toBase64Str())
-                    }
-                })
+                RouteBackup.export(this)
             }
             if (setting) {
                 put("settings", JSONArray().apply {

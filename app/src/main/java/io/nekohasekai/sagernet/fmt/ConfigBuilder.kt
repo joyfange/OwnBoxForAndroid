@@ -37,7 +37,6 @@ import io.nekohasekai.sagernet.ktx.isIpAddressV6
 import io.nekohasekai.sagernet.ktx.unwrapIPV6Host
 import io.nekohasekai.sagernet.ktx.mkPort
 import io.nekohasekai.sagernet.ktx.runOnMainDispatcher
-import io.nekohasekai.sagernet.utils.PackageCache
 import moe.matsuri.nb4a.*
 import moe.matsuri.nb4a.SingBoxOptions.*
 import moe.matsuri.nb4a.plugin.Plugins
@@ -48,9 +47,15 @@ import moe.matsuri.nb4a.proxy.shadowtls.ShadowTLSBean
 import moe.matsuri.nb4a.proxy.shadowtls.buildSingBoxOutboundShadowTLSBean
 import moe.matsuri.nb4a.utils.JavaUtil.gson
 import moe.matsuri.nb4a.utils.Util
-import moe.matsuri.nb4a.utils.listByLineOrComma
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import io.nekohasekai.sagernet.route.RouteRuleEditor
+import io.nekohasekai.sagernet.database.RouteManager
+import io.nekohasekai.sagernet.route.OutboundIds
+import io.nekohasekai.sagernet.route.RouteProfile
+import io.nekohasekai.sagernet.route.RuleSets
+import io.nekohasekai.sagernet.route.RuleType
+import io.nekohasekai.sagernet.route.json.JsonArray as RouteJsonArray
+import io.nekohasekai.sagernet.route.json.JsonNull as RouteJsonNull
+import io.nekohasekai.sagernet.route.json.JsonObject as RouteJsonObject
 
 const val TAG_MIXED = "mixed-in"
 
@@ -324,6 +329,28 @@ private fun serverHostOf(bean: AbstractBean): String? {
     return fallback
 }
 
+/**
+ * The route profile a build works on (ThroneForAndroid ConfigGenerator.routeProfileForBuild): a copy, with the
+ * Linux-only `bypass` action turned into `route` to the same outbound.
+ */
+internal fun routeProfileForBuild(profile: RouteProfile): RouteProfile = profile.copy().also { copy ->
+    for (rule in copy.rules) if (rule.action == "bypass") rule.action = "route"
+}
+
+/** A route/json value as plain Kotlin collections (Long / Double / String / Boolean / Map / List / null) for gson. */
+internal fun routeJsonToPlain(value: Any?): Any? = when (value) {
+    is RouteJsonObject -> LinkedHashMap<String, Any?>().also { map -> for ((k, v) in value) map[k] = routeJsonToPlain(v) }
+    is RouteJsonArray -> value.map { routeJsonToPlain(it) }
+    RouteJsonNull -> null
+    else -> value
+}
+
+/** A generated sing-box rule object carried verbatim through OwnBox's typed route.rules list. */
+internal fun rawRouteRule(json: RouteJsonObject): Rule_DefaultOptions = Rule_DefaultOptions().apply {
+    @Suppress("UNCHECKED_CAST")
+    _hack_config_map.putAll(routeJsonToPlain(json) as Map<String, Any?>)
+}
+
 fun buildConfig(
     proxy: ProxyEntity, forTest: Boolean = false, forExport: Boolean = false
 ): ConfigBuildResult {
@@ -391,11 +418,14 @@ fun buildConfig(
         return list
     }
 
-    val extraRules = if (forTest) listOf() else SagerDatabase.rulesDao.enabledRules()
+    // Routing (ported from ThroneForAndroid): the current route profile replaces OwnBox's old flat rule list.
+    // Test configs never read it (generate.cpp BuildTestConfig); global mode ignores its rules.
+    val routeProfile: RouteProfile? = if (forTest) null else routeProfileForBuild(RouteManager.current())
+    val routeOutboundIds = routeProfile?.usedOutboundIds()?.filter { it > 0 }.orEmpty()
     val extraProxies =
-        if (forTest) mapOf() else SagerDatabase.proxyDao.getEntities(extraRules.mapNotNull { rule ->
-            rule.outbound.takeIf { it > 0 && it != proxy.id }
-        }.toHashSet().toList()).associateBy { it.id }
+        if (forTest) mapOf() else SagerDatabase.proxyDao.getEntities(
+            routeOutboundIds.filter { it != proxy.id }.distinct()
+        ).associateBy { it.id }
     val buildSelector = !forTest && group?.isSelector == true && !forExport
     val isGroupUrlTest = group?.let { DataStore.isGroupUrlTest(it.id) } == true
     val isGroupLoadBalance = group?.let { DataStore.isGroupLoadBalance(it.id) } == true
@@ -1338,294 +1368,121 @@ fun buildConfig(
             })
 
             route.final_ = mainProxyTag
-        } else {
-            // 应用用户规则
-            for (rule in extraRules) {
-                if (rule.packages.isNotEmpty()) {
-                    PackageCache.awaitLoadSync()
-                }
-                val effectivePackages = rule.packages.toMutableSet()
-                if (effectivePackages.contains("com.android.vending")) {
-                    effectivePackages.add("com.android.providers.downloads")
-                    effectivePackages.add("com.android.providers.downloads.ui")
-                    effectivePackages.add("com.xiaomi.providers.downloads")
-                    effectivePackages.add("com.google.android.gms")
-                }
-                val uidList = effectivePackages.mapNotNull {
-                    if (!isVPN) {
-                        Toast.makeText(
-                            SagerNet.application,
-                            SagerNet.application.getString(R.string.route_need_vpn, rule.displayName()),
-                            Toast.LENGTH_SHORT
-                        ).show()
+        } else if (routeProfile != null) {
+            // Route profile -> route.rules / route.rule_set / route.final, after ThroneForAndroid's ConfigGenerator
+            // (calculatePrerequisites' outbound map, collectRuleSets, getRouteRules, buildRouteSection).
+
+            // Rule outbounds: the predefined ids, then each server profile through its chain built above.
+            val outboundMap = HashMap<Long, String>()
+            outboundMap[OutboundIds.PROXY] = mainProxyTag
+            // OwnBox keeps user "direct" traffic on its bypass outbound (both are plain direct outbounds).
+            outboundMap[OutboundIds.DIRECT] = TAG_BYPASS
+            // OwnBox has no WARP: Throne routes warp-bypass to proxy whenever WARP is off.
+            outboundMap[OutboundIds.WARP_BYPASS] = mainProxyTag
+            for (id in routeOutboundIds) {
+                val tag = tagMap[id]
+                    ?: error("The routing profile \"${routeProfile.name}\" is referencing outbounds that no longer exist, consider revising your settings")
+                outboundMap[id] = tag
+            }
+
+            // Rule-sets (collectRuleSets): an .srs URL downloads verbatim under its hashed tag, a catalog name
+            // through the ruleset mirror; OwnBox addition: an unlisted geosite-* / geoip-* name falls back to the
+            // local geodata rule-set of the same name. Anything else fails the build like on Throne.
+            val profileRuleSets = mutableListOf<RuleSet>()
+            val ruleSetTags = HashSet<String>()
+            val catalog = RouteManager.catalog()
+            val mirror = DataStore.rulesetMirror
+            val ruleSetInterval = DataStore.rulesUpdateInterval.trim().takeIf { it.isNotEmpty() && it != "0" }
+            fun remoteRuleSet(tag: String, url: String) = RuleSet().apply {
+                type = "remote"
+                this.tag = tag
+                format = "binary"
+                this.url = url
+                if (ruleSetInterval != null) update_interval = ruleSetInterval
+            }
+            for ((index, rule) in routeProfile.rules.withIndex()) {
+                if (rule.type == RuleType.ENDPOINT_PREFERRED_BY.id) continue
+                for (raw in rule.rule_set) {
+                    val entry = raw.trim()
+                    if (entry.isEmpty()) continue
+                    val tag = RuleSets.tagFor(entry)
+                    if (!ruleSetTags.add(tag)) continue
+                    if (RuleSets.isUrl(entry)) {
+                        profileRuleSets.add(remoteRuleSet(tag, entry))
+                        continue
                     }
-                    PackageCache[it]?.takeIf { uid -> uid >= 1000 }
-                }.toHashSet().toList()
-                val ruleSets = mutableListOf<RuleSet>()
-
-                val domainList = if (rule.domains.isNotBlank()) rule.domains.listByLineOrComma() else null
-                val ipList = if (rule.ip.isNotBlank()) rule.ip.listByLineOrComma() else null
-
-                // 存储ruleset标签和类型信息: Pair(tag, isIPRuleset)
-                val rulesetTags = mutableListOf<Pair<String, Boolean>>()
-                if (rule.ruleset.isNotBlank()) {
-                    val rulesetUrls = rule.ruleset.listByLineOrComma()
-                    rulesetUrls.forEach { origUrl ->
-                        val (url, isIPRuleset) = processRulesetUrl(origUrl)
-                        val tag = generateRemoteRuleSet(url, ruleSets, DataStore.rulesUpdateInterval)
-                        rulesetTags.add(Pair(tag, isIPRuleset))
-                    }
-                }
-
-                val hasDomainCriteria = !domainList.isNullOrEmpty()
-                val hasIpCriteria = !ipList.isNullOrEmpty() || rulesetTags.any { it.second }
-                val hasDomainRuleset = rulesetTags.any { !it.second }
-                val isAppOnlyDns =
-                    (uidList.isNotEmpty() || effectivePackages.isNotEmpty()) &&
-                        !hasDomainCriteria &&
-                        !hasIpCriteria &&
-                        !hasDomainRuleset &&
-                        rule.port.isBlank() &&
-                        rule.sourcePort.isBlank() &&
-                        rule.network.isBlank() &&
-                        rule.source.isBlank() &&
-                        rule.protocol.isBlank()
-                val routingAction = RouteRuleEditor.action(rule.config, rule.outbound)
-                val extendedMatch = RouteRuleEditor.json(rule.config)
-                val scopedMatch = setOf("domain", "domain_suffix", "domain_keyword", "domain_regex", "inbound",
-                    "ip_version", "ip_is_private", "source_ip_is_private", "invert", "port", "port_range",
-                    "source_ip_cidr", "source_port", "source_port_range")
-                val usesDnsOutbound = routingAction in setOf("route", "reject") && scopedMatch.none { extendedMatch.has(it) }
-                val shouldAddDnsRule = usesDnsOutbound && (hasDomainCriteria || isAppOnlyDns)
-
-                fun makeDomainDnsRuleObj(): DNSRule_DefaultOptions? {
-                    if (!hasDomainCriteria) return null
-                    return DNSRule_DefaultOptions().apply {
-                        domainList?.let { makeSingBoxRule(it) }
-                    }
-                }
-
-                fun makeAppDnsRuleObj(): List<DNSRule_DefaultOptions> {
-                    val list = mutableListOf<DNSRule_DefaultOptions>()
-                    if (effectivePackages.isNotEmpty()) {
-                        list.add(DNSRule_DefaultOptions().apply {
-                            package_name = effectivePackages.toList()
-                        })
-                    }
-                    if (uidList.isNotEmpty()) {
-                        list.add(DNSRule_DefaultOptions().apply {
-                            user_id = uidList
-                        })
-                    }
-                    return list
-                }
-
-                when (if (routingAction == "reject") -2L else rule.outbound) {
-                    -1L -> {
-                        if (usesDnsOutbound) {
-                            makeDomainDnsRuleObj()?.let { userDNSRuleList += it.apply { server = "dns-direct" } }
-                            if (isAppOnlyDns) {
-                                makeAppDnsRuleObj().forEach { userDNSRuleList += it.apply { server = "dns-direct" } }
-                            }
-                        }
-                        for ((tag, isIP) in rulesetTags.filter { usesDnsOutbound }) {
-                            if (!isIP) {
-                                userDNSRuleList += DNSRule_DefaultOptions().apply {
-                                    rule_set = mutableListOf(tag)
-                                    server = "dns-direct"
-                                }
-                            }
-                        }
-                    }
-
-                    -2L -> {
-                        if (usesDnsOutbound) {
-                            makeDomainDnsRuleObj()?.let { userDNSRuleList += it.apply { action = "reject" } }
-                            if (isAppOnlyDns) {
-                                makeAppDnsRuleObj().forEach { userDNSRuleList += it.apply { action = "reject" } }
-                            }
-                        }
-                        for ((tag, isIP) in rulesetTags.filter { usesDnsOutbound }) {
-                            if (!isIP) {
-                                userDNSRuleList += DNSRule_DefaultOptions().apply {
-                                    rule_set = mutableListOf(tag)
-                                    action = "reject"
-                                }
-                            }
-                        }
-                    }
-
-                    else -> {
-                        if (usesDnsOutbound) {
-                            makeDomainDnsRuleObj()?.let {
-                                if (useFakeDns) {
-                                    userDNSRuleList += it.apply {
-                                        server = "dns-fake"
-                                        inbound = listOf("tun-in")
-                                        query_type = listOf("A", "AAAA")
-                                    }
-                                } else {
-                                    userDNSRuleList += it.apply { server = "dns-remote" }
-                                }
-                            }
-                            if (isAppOnlyDns) {
-                                makeAppDnsRuleObj().forEach {
-                                    if (useFakeDns) {
-                                        userDNSRuleList += it.apply {
-                                            server = "dns-fake"
-                                            inbound = listOf("tun-in")
-                                            query_type = listOf("A", "AAAA")
-                                        }
-                                    } else {
-                                        userDNSRuleList += it.apply { server = "dns-remote" }
-                                    }
-                                }
-                            }
-                        }
-                        for ((tag, isIP) in rulesetTags.filter { usesDnsOutbound }) {
-                            if (!isIP) {
-                                if (useFakeDns) {
-                                    userDNSRuleList += DNSRule_DefaultOptions().apply {
-                                        rule_set = mutableListOf(tag)
-                                        server = "dns-fake"
-                                        inbound = listOf("tun-in")
-                                        query_type = listOf("A", "AAAA")
-                                    }
-                                } else {
-                                    userDNSRuleList += DNSRule_DefaultOptions().apply {
-                                        rule_set = mutableListOf(tag)
-                                        server = "dns-remote"
-                                    }
-                                }
-                            }
+                    val listed = if (entry == RuleSets.ADBLOCK_TAG) RuleSets.ADBLOCK_URL else catalog.urlOf(entry)
+                    when {
+                        listed != null -> profileRuleSets.add(remoteRuleSet(tag, RuleSets.mirrorLink(listed, mirror)))
+                        entry.startsWith("geosite-") || entry.startsWith("geoip-") -> generateRuleSet(listOf(entry), profileRuleSets)
+                        else -> {
+                            val ruleName = rule.name.ifBlank { "#${index + 1}" }
+                            error("Unknown rule-set \"$entry\" in rule \"$ruleName\" of routing profile \"${routeProfile.name}\"")
                         }
                     }
                 }
+            }
+            route.rule_set.addAll(profileRuleSets)
 
-                val targetOutbound = when (val outId = rule.outbound) {
-                    0L -> mainProxyTag
-                    -1L -> TAG_BYPASS
-                    -2L -> TAG_BLOCK
-                    else -> if (outId == proxy.id) mainProxyTag else tagMap[outId] ?: ""
-                }
+            // getRouteRules: simple rules without a condition are skipped; endpoint rules have no Android
+            // counterpart; rule-level TLS spoof is dropped (D8). sing-box 1.13 removed sniff's
+            // override_destination, so OwnBox drops it as well.
+            for (rule in routeProfile.rules) {
+                val type = RuleType.ofId(rule.type)
+                if (type == RuleType.ENDPOINT_PREFERRED_BY) continue
+                if (type != RuleType.CUSTOM && rule.isEmpty()) continue
+                val json = rule.toRuleJson(false, outboundMap[rule.outbound_id])
+                if (json.isEmpty()) error("Aborted generating routing section, an error has occurred")
+                json.remove("tls_spoof")
+                json.remove("tls_spoof_method")
+                json.remove("override_destination")
+                route.rules.add(rawRouteRule(json))
+                Logs.d("[ConfigBuilder] Route rule '${rule.name}' -> ${json.string("outbound").ifEmpty { json.string("action") }}")
+            }
 
-                fun applyCommonFilters(ruleObj: Rule_DefaultOptions) {
-                    if (rule.port.isNotBlank()) {
-                        ruleObj.port = mutableListOf<Int>()
-                        ruleObj.port_range = mutableListOf<String>()
-                        rule.port.listByLineOrComma().forEach {
-                            if (it.contains(":")) {
-                                ruleObj.port_range.add(it)
-                            } else {
-                                it.toIntOrNull()?.let { p -> ruleObj.port.add(p) }
-                            }
-                        }
-                    }
-                    if (rule.sourcePort.isNotBlank()) {
-                        ruleObj.source_port = mutableListOf<Int>()
-                        ruleObj.source_port_range = mutableListOf<String>()
-                        rule.sourcePort.listByLineOrComma().forEach {
-                            if (it.contains(":")) {
-                                ruleObj.source_port_range.add(it)
-                            } else {
-                                it.toIntOrNull()?.let { p -> ruleObj.source_port.add(p) }
-                            }
-                        }
-                    }
-                    if (rule.network.isNotBlank()) {
-                        ruleObj.network = rule.network.listByLineOrComma()
-                    }
-                    if (rule.source.isNotBlank()) {
-                        ruleObj.source_ip_cidr = rule.source.listByLineOrComma()
-                    }
-                    if (rule.protocol.isNotBlank()) {
-                        ruleObj.protocol = rule.protocol.listByLineOrComma()
-                    }
-                    if (targetOutbound == TAG_BLOCK) {
-                        ruleObj.outbound = null
-                        ruleObj.action = "reject"
-                    } else {
-                        ruleObj.outbound = targetOutbound
-                    }
-                    RouteRuleEditor.applyAction(ruleObj, rule.config)
-                }
+            // buildRouteSection: a block default is a direct final that nothing reaches.
+            val defaultOutbound = routeProfile.default_outbound_id
+            if (defaultOutbound == OutboundIds.BLOCK) route.rules.add(Rule_DefaultOptions().apply { action = "reject" })
+            route.final_ = when (defaultOutbound) {
+                OutboundIds.BLOCK -> TAG_DIRECT
+                OutboundIds.DIRECT -> TAG_BYPASS
+                else -> mainProxyTag
+            }
 
-                val generatedSubRules = mutableListOf<Rule_DefaultOptions>()
-                val hasDomain = hasDomainCriteria || hasDomainRuleset
-                val hasIp = hasIpCriteria
-                val hasApp = uidList.isNotEmpty() || rule.packages.isNotEmpty()
-
-                // Generate independent sub-rules to achieve true OR semantics in sing-box:
-                // Traffic matching Domain OR IP OR App will route to targetOutbound independently,
-                // without AND criteria deadlocks between package and domain.
-                if (hasDomain) {
-                    val domainSubRule = Rule_DefaultOptions().apply {
-                        domainList?.let { makeSingBoxRule(it, false) }
-                        val domainRulesetTags = rulesetTags.filter { !it.second }.map { it.first }
-                        if (domainRulesetTags.isNotEmpty()) {
-                            rule_set = (rule_set ?: mutableListOf()).apply { addAll(domainRulesetTags) }
-                        }
-                        if (rule_set != null) generateRuleSet(rule_set, ruleSets)
-                        applyCommonFilters(this)
-                    }
-                    if (!domainSubRule.checkEmpty()) generatedSubRules.add(domainSubRule)
-                }
-
-                if (hasIp) {
-                    val ipSubRule = Rule_DefaultOptions().apply {
-                        ipList?.let { makeSingBoxRule(it, true) }
-                        val ipRulesetTags = rulesetTags.filter { it.second }.map { it.first }
-                        if (ipRulesetTags.isNotEmpty()) {
-                            rule_set = (rule_set ?: mutableListOf()).apply { addAll(ipRulesetTags) }
-                        }
-                        if (rule_set != null) generateRuleSet(rule_set, ruleSets)
-                        applyCommonFilters(this)
-                    }
-                    if (!ipSubRule.checkEmpty()) generatedSubRules.add(ipSubRule)
-                }
-
-                if (hasApp) {
-                    val appSubRule = Rule_DefaultOptions().apply {
-                        if (uidList.isNotEmpty()) {
-                            user_id = uidList
-                        }
-                        applyCommonFilters(this)
-                    }
-                    if (!appSubRule.checkEmpty()) generatedSubRules.add(appSubRule)
-
-                    if (effectivePackages.isNotEmpty()) {
-                        val pkgSubRule = Rule_DefaultOptions().apply {
-                            package_name = effectivePackages.toList()
-                            applyCommonFilters(this)
-                        }
-                        if (!pkgSubRule.checkEmpty()) generatedSubRules.add(pkgSubRule)
+            // calculatePrerequisites / buildDNSSection: with DNS routing on, the sites of the profile's direct
+            // rules resolve through dns-direct (one rule-set rule plus one inline rule). Proxy sites need no
+            // carve-out because OwnBox's final DNS server is always dns-remote.
+            if (enableDnsRouting) {
+                val directRuleSets = ArrayList<String>()
+                val directDomains = ArrayList<String>()
+                val directSuffixes = ArrayList<String>()
+                val directKeywords = ArrayList<String>()
+                val directRegexes = ArrayList<String>()
+                for (raw in routeProfile.directSites()) {
+                    val item = raw.trim()
+                    val prefix = listOf("ruleset:", "domain:", "suffix:", "keyword:", "regex:")
+                        .firstOrNull { item.startsWith(it) } ?: continue
+                    val value = item.substring(prefix.length).trim()
+                    if (value.isEmpty()) continue
+                    when (prefix) {
+                        "ruleset:" -> directRuleSets.add(value)
+                        "domain:" -> directDomains.add(value)
+                        "suffix:" -> directSuffixes.add(value)
+                        "keyword:" -> directKeywords.add(value)
+                        "regex:" -> directRegexes.add(value)
                     }
                 }
-
-                if (!hasDomain && !hasIp && !hasApp) {
-                    val fallbackRule = Rule_DefaultOptions().apply {
-                        applyCommonFilters(this)
-                    }
-                    if (!fallbackRule.checkEmpty()) generatedSubRules.add(fallbackRule)
+                if (directRuleSets.isNotEmpty()) userDNSRuleList += DNSRule_DefaultOptions().apply {
+                    rule_set = directRuleSets.distinct()
+                    server = "dns-direct"
                 }
-
-                val invertedGroup = RouteRuleEditor.invertedGroup(generatedSubRules)
-                if (invertedGroup != null) {
-                    route.rules.add(invertedGroup)
-                    route.rule_set.addAll(ruleSets)
-                    continue
-                }
-                for (subRule in generatedSubRules) {
-                    if (subRule.action !in setOf("reject", "sniff", "resolve", "hijack-dns", "route-options") && subRule.outbound.isNullOrBlank()) {
-                        Toast.makeText(
-                            SagerNet.application,
-                            "Warning: " + rule.displayName() + ": A non-existent outbound was specified.",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    } else {
-                        route.rules.add(subRule)
-                        route.rule_set.addAll(ruleSets)
-                        Logs.d("[ConfigBuilder] Route rule '${rule.displayName()}' condition added -> ${subRule.outbound ?: subRule.action}")
+                if (directDomains.isNotEmpty() || directSuffixes.isNotEmpty() || directKeywords.isNotEmpty() || directRegexes.isNotEmpty()) {
+                    userDNSRuleList += DNSRule_DefaultOptions().apply {
+                        if (directDomains.isNotEmpty()) domain = directDomains
+                        if (directSuffixes.isNotEmpty()) domain_suffix = directSuffixes
+                        if (directKeywords.isNotEmpty()) domain_keyword = directKeywords
+                        if (directRegexes.isNotEmpty()) domain_regex = directRegexes
+                        server = "dns-direct"
                     }
                 }
             }

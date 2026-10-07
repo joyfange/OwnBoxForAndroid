@@ -251,6 +251,23 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat(), OnPreferenceDataS
             true
         }
 
+        // Routing (ported from ThroneForAndroid): the rule-set / remote route profile mirror and the remote route
+        // profile auto update interval (minutes, below 30 = off).
+        findPreference<SimpleMenuPreference>(Key.RULESET_MIRROR)?.setOnPreferenceChangeListener { _, _ ->
+            needReload()
+            true
+        }
+        findPreference<EditTextPreference>(Key.ROUTE_AUTO_UPDATE)?.apply {
+            setOnBindEditTextListener { it.inputType = android.text.InputType.TYPE_CLASS_NUMBER }
+            setOnPreferenceChangeListener { _, newValue ->
+                val minutes = (newValue as? String)?.trim()?.toIntOrNull() ?: return@setOnPreferenceChangeListener false
+                if (minutes < 0) return@setOnPreferenceChangeListener false
+                // The store is written after this returns, so schedule once it holds the new value.
+                listView?.post { io.nekohasekai.sagernet.group.RemoteRouteUpdater.schedule() }
+                true
+            }
+        }
+
         // 禁用混合入站：开启时代理端口/身份验证/绕过列表设置项变灰，端口摘要显示「已禁用」
         fun updateMixedPortState(disabled: Boolean = DataStore.disableMixedInbound) {
             mixedPort.isEnabled = !disabled

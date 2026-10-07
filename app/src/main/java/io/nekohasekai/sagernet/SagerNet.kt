@@ -130,6 +130,8 @@ class SagerNet : Application(),
 
                 updateNotificationChannels()
             }
+            // Remote route profile auto update (ported from ThroneForAndroid).
+            io.nekohasekai.sagernet.group.RemoteRouteUpdater.schedule(keepExisting = true)
         }
 
         if (BuildConfig.DEBUG) {

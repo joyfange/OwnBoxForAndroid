@@ -376,7 +376,14 @@
             android:name="io.nekohasekai.sagernet.ui.GroupSettingsActivity"
             android:configChanges="uiMode" />
         <activity
-            android:name="io.nekohasekai.sagernet.ui.RouteSettingsActivity"
+            android:name="io.nekohasekai.sagernet.ui.route.RouteProfileActivity"
+            android:configChanges="uiMode"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name="io.nekohasekai.sagernet.ui.route.RouteRuleActivity"
+            android:configChanges="uiMode" />
+        <activity
+            android:name="io.nekohasekai.sagernet.ui.route.RuleSetPickerActivity"
             android:configChanges="uiMode" />
         <activity
             android:name="io.nekohasekai.sagernet.ui.ConnectionDetailActivity"

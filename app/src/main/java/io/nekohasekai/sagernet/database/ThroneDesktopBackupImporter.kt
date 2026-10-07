@@ -11,6 +11,7 @@ import io.nekohasekai.sagernet.fmt.AbstractBean
 import io.nekohasekai.sagernet.fmt.parseSingBoxOutbound
 import io.nekohasekai.sagernet.ktx.Logs
 import io.nekohasekai.sagernet.ktx.applyDefaultValues
+import io.nekohasekai.sagernet.route.RouteProfile
 import moe.matsuri.nb4a.proxy.config.ConfigBean
 import org.json.JSONArray
 import org.json.JSONObject
@@ -32,11 +33,6 @@ object ThroneDesktopBackupImporter {
     private const val MAGIC = "THRN"
     private const val MAX_FORMAT_VERSION = 2
 
-    // Throne RouteRule outboundID
-    private const val DESKTOP_OUT_PROXY = -1
-    private const val DESKTOP_OUT_DIRECT = -2
-    private const val DESKTOP_OUT_BLOCK = -3
-    private const val DESKTOP_OUT_WARP_BYPASS = -5
 
     data class ParsedBackup(
         val formatVersion: Int,
@@ -456,180 +452,108 @@ object ThroneDesktopBackupImporter {
 
     // region routes
 
+    /**
+     * The desktop's `route_profiles` / `route_rules` tables have the same layout as OwnBox's (both ported from
+     * Throne), so every profile and rule is copied as is; server profile ids keep their desktop values like the
+     * rest of this importer. The desktop's current_route_id becomes the current profile.
+     */
     private fun importRoutes(db: SQLiteDatabase, settings: Map<String, String>) {
-        val currentRouteId = settings["current_route_id"]?.toLongOrNull()
-        val routeProfileIds = ArrayList<Long>()
+        val desktopCurrent = settings["current_route_id"]?.toLongOrNull()
+        val profiles = ArrayList<Pair<Long, RouteProfile>>()
         try {
-            db.rawQuery("SELECT id FROM route_profiles ORDER BY id", null).use { c ->
-                val i = c.getColumnIndex("id")
-                while (c.moveToNext()) routeProfileIds.add(c.getLong(i))
+            db.rawQuery("SELECT * FROM route_profiles ORDER BY id", null).use { c ->
+                while (c.moveToNext()) {
+                    val e = RouteProfileEntity(
+                        id = 0L,
+                        name = c.str("name"),
+                        defaultOutboundId = c.lng("default_outbound_id", -1L),
+                        isRemote = c.lng("is_remote", 0L) != 0L,
+                        remoteUrl = c.str("remote_url"),
+                        autoUpdate = c.lng("auto_update", 0L) != 0L,
+                        remoteLastUpdate = c.lng("remote_last_update", 0L),
+                        isRaw = c.lng("is_raw", 0L) != 0L,
+                        rawRoute = c.str("raw_route"),
+                        preventModifications = c.lng("prevent_modifications", 0L) != 0L,
+                        endpointProfileIds = c.str("endpoint_profile_ids", "[]"),
+                        innerHopEndpointIds = c.str("inner_hop_endpoint_ids", "[]"),
+                    )
+                    profiles.add(c.lng("id", 0L) to e.toModel(emptyList()))
+                }
+            }
+            for ((desktopId, p) in profiles) {
+                db.rawQuery(
+                    "SELECT * FROM route_rules WHERE route_profile_id = ? ORDER BY rule_order",
+                    arrayOf(desktopId.toString())
+                ).use { c ->
+                    while (c.moveToNext()) {
+                        p.rules.add(
+                            RouteRuleEntity(
+                                name = c.str("name"),
+                                type = c.lng("type", 0L).toInt(),
+                                ipVersion = c.str("ip_version"),
+                                network = c.str("network"),
+                                protocol = c.str("protocol"),
+                                inboundJson = c.str("inbound_json", "[]"),
+                                domainJson = c.str("domain_json", "[]"),
+                                domainSuffixJson = c.str("domain_suffix_json", "[]"),
+                                domainKeywordJson = c.str("domain_keyword_json", "[]"),
+                                domainRegexJson = c.str("domain_regex_json", "[]"),
+                                sourceIpCidrJson = c.str("source_ip_cidr_json", "[]"),
+                                sourceIpIsPrivate = c.lng("source_ip_is_private", 0L) != 0L,
+                                ipCidrJson = c.str("ip_cidr_json", "[]"),
+                                ipIsPrivate = c.lng("ip_is_private", 0L) != 0L,
+                                sourcePortJson = c.str("source_port_json", "[]"),
+                                sourcePortRangeJson = c.str("source_port_range_json", "[]"),
+                                portJson = c.str("port_json", "[]"),
+                                portRangeJson = c.str("port_range_json", "[]"),
+                                processNameJson = c.str("process_name_json", "[]"),
+                                processPathJson = c.str("process_path_json", "[]"),
+                                processPathRegexJson = c.str("process_path_regex_json", "[]"),
+                                packageNameJson = c.str("package_name_json", "[]"),
+                                ruleSetJson = c.str("rule_set_json", "[]"),
+                                invert = c.lng("invert", 0L) != 0L,
+                                outboundId = c.lng("outbound_id", -2L),
+                                action = c.str("action", "route").ifBlank { "route" },
+                                rejectMethod = c.str("reject_method"),
+                                noDrop = c.lng("no_drop", 0L) != 0L,
+                                overrideAddress = c.str("override_address"),
+                                overridePort = c.str("override_port"),
+                                sniffersJson = c.str("sniffers_json", "[]"),
+                                sniffOverrideDest = c.lng("sniff_override_dest", 0L) != 0L,
+                                strategy = c.str("strategy"),
+                                wifiSsidJson = c.str("wifi_ssid_json", "[]"),
+                                wifiBssidJson = c.str("wifi_bssid_json", "[]"),
+                                tlsSpoof = c.str("tls_spoof"),
+                                tlsSpoofMethod = c.str("tls_spoof_method"),
+                            ).toModel()
+                        )
+                    }
+                }
             }
         } catch (e: Exception) {
             Logs.w(e)
         }
-        if (routeProfileIds.isEmpty()) {
-            SagerDatabase.rulesDao.reset()
-            return
-        }
-        val targetIds = if (currentRouteId != null && routeProfileIds.contains(currentRouteId)) {
-            listOf(currentRouteId)
-        } else {
-            routeProfileIds
-        }
-
-        val rules = ArrayList<RuleEntity>()
-        var userOrder = 1L
-        for (rpId in targetIds) {
-            db.rawQuery(
-                "SELECT * FROM route_rules WHERE route_profile_id = ? ORDER BY rule_order",
-                arrayOf(rpId.toString())
-            ).use { c ->
-                fun idx(n: String) = c.getColumnIndex(n)
-                val iName = idx("name")
-                val iNetwork = idx("network")
-                val iProtocol = idx("protocol")
-                val iDomain = idx("domain_json")
-                val iDomSuf = idx("domain_suffix_json")
-                val iDomKey = idx("domain_keyword_json")
-                val iDomRe = idx("domain_regex_json")
-                val iSrcIp = idx("source_ip_cidr_json")
-                val iSrcPriv = idx("source_ip_is_private")
-                val iIp = idx("ip_cidr_json")
-                val iIpPriv = idx("ip_is_private")
-                val iSrcPort = idx("source_port_json")
-                val iSrcPortR = idx("source_port_range_json")
-                val iPort = idx("port_json")
-                val iPortR = idx("port_range_json")
-                val iRuleSet = idx("rule_set_json")
-                val iOutbound = idx("outbound_id")
-                val iAction = idx("action")
-                while (c.moveToNext()) {
-                    val action = (if (iAction >= 0) c.getString(iAction) else null) ?: "route"
-                    // T4A ConfigBuilder already injects hijack-dns / sniff plumbing
-                    if (action == "hijack-dns" || action == "sniff" || action == "resolve") continue
-
-                    val domainParts = ArrayList<String>()
-                    parseStringList(if (iDomain >= 0) c.getString(iDomain) else null).forEach {
-                        domainParts.add(if (it.startsWith("full:")) it else "full:$it")
-                    }
-                    parseStringList(if (iDomSuf >= 0) c.getString(iDomSuf) else null).forEach {
-                        domainParts.add(
-                            when {
-                                it.startsWith("domain:") || it.startsWith("full:") ||
-                                    it.startsWith("geosite:") || it.startsWith("geosite-") -> it
-                                else -> "domain:$it"
-                            }
-                        )
-                    }
-                    parseStringList(if (iDomKey >= 0) c.getString(iDomKey) else null).forEach {
-                        domainParts.add(if (it.startsWith("keyword:")) it else "keyword:$it")
-                    }
-                    parseStringList(if (iDomRe >= 0) c.getString(iDomRe) else null).forEach {
-                        domainParts.add(if (it.startsWith("regexp:")) it else "regexp:$it")
-                    }
-
-                    val ipParts = ArrayList<String>()
-                    parseStringList(if (iIp >= 0) c.getString(iIp) else null).forEach { ipParts.add(it) }
-                    if (iIpPriv >= 0 && c.getInt(iIpPriv) != 0) {
-                        ipParts.add("geoip:private")
-                    }
-                    val srcParts = ArrayList<String>()
-                    parseStringList(if (iSrcIp >= 0) c.getString(iSrcIp) else null).forEach { srcParts.add(it) }
-                    if (iSrcPriv >= 0 && c.getInt(iSrcPriv) != 0) {
-                        // no dedicated field; approximate via source list note — skip private flag
-                    }
-
-                    val remoteRulesets = ArrayList<String>()
-                    parseStringList(if (iRuleSet >= 0) c.getString(iRuleSet) else null).forEach { rs ->
-                        when {
-                            rs.startsWith("http://") || rs.startsWith("https://") -> remoteRulesets.add(rs)
-                            rs.startsWith("geoip:") || rs.startsWith("geoip-") -> ipParts.add(rs)
-                            rs.startsWith("geosite:") || rs.startsWith("geosite-") -> domainParts.add(rs)
-                            else -> {
-                                // unknown token: keep as domain ruleset-ish
-                                domainParts.add(rs)
-                            }
-                        }
-                    }
-
-                    val ports = ArrayList<String>()
-                    parseStringList(if (iPort >= 0) c.getString(iPort) else null).forEach { ports.add(it) }
-                    parseStringList(if (iPortR >= 0) c.getString(iPortR) else null).forEach {
-                        // desktop ranges often "1000:2000"; T4A uses same colon form in port field
-                        ports.add(it)
-                    }
-                    val srcPorts = ArrayList<String>()
-                    parseStringList(if (iSrcPort >= 0) c.getString(iSrcPort) else null).forEach { srcPorts.add(it) }
-                    parseStringList(if (iSrcPortR >= 0) c.getString(iSrcPortR) else null).forEach { srcPorts.add(it) }
-
-                    val network = if (iNetwork >= 0) c.getString(iNetwork) ?: "" else ""
-                    val protocol = if (iProtocol >= 0) c.getString(iProtocol) ?: "" else ""
-                    // skip pure dns protocol rules (usually paired with hijack-dns)
-                    if (protocol.equals("dns", ignoreCase = true) && domainParts.isEmpty() && ipParts.isEmpty()) {
-                        continue
-                    }
-
-                    val outboundId = if (iOutbound >= 0) c.getInt(iOutbound) else DESKTOP_OUT_DIRECT
-                    val outbound = when (action) {
-                        "reject" -> -2L
-                        else -> mapOutboundId(outboundId)
-                    }
-
-                    // Skip empty rules that would match everything to proxy/direct unintentionally
-                    val hasMatch = domainParts.isNotEmpty() || ipParts.isNotEmpty() ||
-                        ports.isNotEmpty() || srcPorts.isNotEmpty() || srcParts.isNotEmpty() ||
-                        network.isNotBlank() || protocol.isNotBlank() || remoteRulesets.isNotEmpty()
-                    if (!hasMatch) continue
-
-                    rules.add(
-                        RuleEntity(
-                            id = userOrder,
-                            name = (if (iName >= 0) c.getString(iName) else null)
-                                ?.takeIf { it.isNotBlank() } ?: "Rule $userOrder",
-                            userOrder = userOrder,
-                            enabled = true,
-                            domains = domainParts.joinToString("\n"),
-                            ip = ipParts.joinToString("\n"),
-                            port = ports.joinToString(","),
-                            sourcePort = srcPorts.joinToString(","),
-                            network = network,
-                            source = srcParts.joinToString("\n"),
-                            protocol = protocol,
-                            ruleset = remoteRulesets.joinToString("\n"),
-                            outbound = outbound,
-                        )
-                    )
-                    userOrder++
-                }
+        if (profiles.isEmpty()) profiles.add(0L to RouteProfile.defaultProfile())
+        SagerDatabase.instance.runInTransaction {
+            SagerDatabase.routeDao.reset()
+            for ((_, p) in profiles) {
+                p.rules.forEachIndexed { index, rule -> if (rule.name.isBlank()) rule.name = "rule_${index + 1}" }
+                RouteManager.save(p)
             }
         }
-
-        SagerDatabase.rulesDao.reset()
-        if (rules.isNotEmpty()) {
-            SagerDatabase.rulesDao.insert(rules)
-        }
+        val current = profiles.firstOrNull { it.first == desktopCurrent && !it.second.is_raw }?.second
+            ?: profiles.firstOrNull { !it.second.is_raw }?.second
+        if (current != null) DataStore.currentRouteId = current.id
     }
 
-    private fun mapOutboundId(desktopId: Int): Long = when (desktopId) {
-        DESKTOP_OUT_PROXY -> 0L
-        DESKTOP_OUT_DIRECT, DESKTOP_OUT_WARP_BYPASS -> -1L
-        DESKTOP_OUT_BLOCK -> -2L
-        else -> if (desktopId > 0) desktopId.toLong() else 0L
+    private fun android.database.Cursor.str(column: String, default: String = ""): String {
+        val i = getColumnIndex(column)
+        return if (i < 0 || isNull(i)) default else getString(i) ?: default
     }
 
-    private fun parseStringList(raw: String?): List<String> {
-        if (raw.isNullOrBlank()) return emptyList()
-        return try {
-            val arr = JSONArray(raw)
-            buildList {
-                for (i in 0 until arr.length()) {
-                    val s = arr.optString(i, "")
-                    if (s.isNotBlank()) add(s)
-                }
-            }
-        } catch (_: Exception) {
-            emptyList()
-        }
+    private fun android.database.Cursor.lng(column: String, default: Long): Long {
+        val i = getColumnIndex(column)
+        return if (i < 0 || isNull(i)) default else getLong(i)
     }
 
     // endregion

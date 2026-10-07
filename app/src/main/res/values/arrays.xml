@@ -57,6 +57,117 @@
         <item>4</item>
     </string-array>
 
+    <string-array name="int_array_6">
+        <item>0</item>
+        <item>1</item>
+        <item>2</item>
+        <item>3</item>
+        <item>4</item>
+        <item>5</item>
+    </string-array>
+
+    <!-- routing (ported from ThroneForAndroid) -->
+    <string-array name="ruleset_mirror_entries" translatable="false">
+        <item>GitHub</item>
+        <item>jsDelivr (Cloudflare)</item>
+        <item>jsDelivr (Gcore)</item>
+        <item>jsDelivr (Quantil)</item>
+        <item>jsDelivr (Fastly)</item>
+        <item>jsDelivr (CDN)</item>
+    </string-array>
+    <string-array name="domain_strategy_entries">
+        <item>@string/setting_default</item>
+        <item>ipv4_only</item>
+        <item>ipv6_only</item>
+        <item>prefer_ipv4</item>
+        <item>prefer_ipv6</item>
+    </string-array>
+    <string-array name="domain_strategy_values" translatable="false">
+        <item></item>
+        <item>ipv4_only</item>
+        <item>ipv6_only</item>
+        <item>prefer_ipv4</item>
+        <item>prefer_ipv6</item>
+    </string-array>
+    <!-- route rule editor: sing-box tokens as values -->
+    <string-array name="route_rule_action_values" translatable="false">
+        <item>route</item>
+        <item>reject</item>
+        <item>hijack-dns</item>
+        <item>sniff</item>
+        <item>resolve</item>
+        <item>route-options</item>
+    </string-array>
+    <!-- the fixed outbounds; the editor appends the server profiles -->
+    <string-array name="route_rule_outbound_entries" translatable="false">
+        <item>proxy</item>
+        <item>direct</item>
+        <item>block</item>
+    </string-array>
+    <string-array name="route_rule_outbound_values" translatable="false">
+        <item>-1</item>
+        <item>-2</item>
+        <item>-3</item>
+    </string-array>
+    <string-array name="route_rule_reject_method_entries">
+        <item>@string/route_rule_unset</item>
+        <item>default</item>
+        <item>drop</item>
+        <item>reply</item>
+    </string-array>
+    <string-array name="route_rule_reject_method_values" translatable="false">
+        <item></item>
+        <item>default</item>
+        <item>drop</item>
+        <item>reply</item>
+    </string-array>
+    <string-array name="route_rule_network_entries">
+        <item>@string/route_rule_any</item>
+        <item>tcp</item>
+        <item>udp</item>
+        <item>icmp</item>
+    </string-array>
+    <string-array name="route_rule_network_values" translatable="false">
+        <item></item>
+        <item>tcp</item>
+        <item>udp</item>
+        <item>icmp</item>
+    </string-array>
+    <string-array name="route_rule_protocol_entries">
+        <item>@string/route_rule_any</item>
+        <item>http</item>
+        <item>tls</item>
+        <item>quic</item>
+        <item>stun</item>
+        <item>dns</item>
+        <item>bittorrent</item>
+        <item>dtls</item>
+        <item>ssh</item>
+        <item>rdp</item>
+    </string-array>
+    <string-array name="route_rule_protocol_values" translatable="false">
+        <item></item>
+        <item>http</item>
+        <item>tls</item>
+        <item>quic</item>
+        <item>stun</item>
+        <item>dns</item>
+        <item>bittorrent</item>
+        <item>dtls</item>
+        <item>ssh</item>
+        <item>rdp</item>
+    </string-array>
+    <string-array name="route_rule_ip_version_entries">
+        <item>@string/route_rule_any</item>
+        <item>IPv4</item>
+        <item>IPv6</item>
+    </string-array>
+    <string-array name="route_rule_ip_version_values" translatable="false">
+        <item></item>
+        <item>4</item>
+        <item>6</item>
+    </string-array>
+
     <string-array name="speed_test_modes">
         <item>@string/speed_test_mode_download_upload</item>
         <item>@string/speed_test_mode_download</item>

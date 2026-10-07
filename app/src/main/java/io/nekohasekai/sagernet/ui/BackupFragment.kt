@@ -466,7 +466,7 @@ class BackupFragment : NamedFragment(R.layout.layout_backup) {
                     if (!json.has("profiles")) {
                         import.backupConfigurations.isVisible = false
                     }
-                    if (!json.has("rules")) {
+                    if (!RouteBackup.hasRoutes(json)) {
                         import.backupRules.isVisible = false
                     }
                     if (!json.has("settings")) {
@@ -557,11 +557,7 @@ class BackupFragment : NamedFragment(R.layout.layout_backup) {
                 })
             }
             if (rule) {
-                put("rules", JSONArray().apply {
-                    SagerDatabase.rulesDao.allRules().forEach {
-                        put(it.toBase64Str())
-                    }
-                })
+                RouteBackup.export(this)
             }
             if (setting) {
                 put("settings", JSONArray().apply {
@@ -738,7 +734,7 @@ class BackupFragment : NamedFragment(R.layout.layout_backup) {
                 if (!json.has("profiles")) {
                     import.backupConfigurations.isVisible = false
                 }
-                if (!json.has("rules")) {
+                if (!RouteBackup.hasRoutes(json)) {
                     import.backupRules.isVisible = false
                 }
                 if (!json.has("settings")) {
@@ -814,19 +810,8 @@ class BackupFragment : NamedFragment(R.layout.layout_backup) {
             SagerDatabase.groupDao.reset()
             SagerDatabase.groupDao.insert(groups)
         }
-        if (rule && content.has("rules")) {
-            val rules = mutableListOf<RuleEntity>()
-            val jsonRules = content.getJSONArray("rules")
-            for (i in 0 until jsonRules.length()) {
-                val data = Util.b64Decode(jsonRules[i] as String)
-                val parcel = Parcel.obtain()
-                parcel.unmarshall(data, 0, data.size)
-                parcel.setDataPosition(0)
-                rules.add(ParcelizeBridge.createRule(parcel))
-                parcel.recycle()
-            }
-            SagerDatabase.rulesDao.reset()
-            SagerDatabase.rulesDao.insert(rules)
+        if (rule && RouteBackup.hasRoutes(content)) {
+            RouteBackup.restore(content)
         }
         if (setting && content.has("settings")) {
             val settings = mutableListOf<KeyValuePair>()

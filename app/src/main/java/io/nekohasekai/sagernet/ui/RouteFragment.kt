@@ -1,430 +1,547 @@
 package io.nekohasekai.sagernet.ui
 
+import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Intent
+import android.graphics.Typeface
 import android.os.Bundle
+import android.text.InputType
+import android.view.Gravity
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.PopupMenu
 import androidx.appcompat.widget.Toolbar
-import androidx.core.content.ContextCompat
-import androidx.core.view.ViewCompat
-import androidx.core.view.updatePadding
-import androidx.recyclerview.widget.ItemTouchHelper
+import androidx.core.view.isGone
+import androidx.core.view.isVisible
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import kotlinx.coroutines.*
+import com.google.android.material.textfield.TextInputEditText
+import com.google.android.material.textfield.TextInputLayout
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.database.DataStore
-import io.nekohasekai.sagernet.database.ProfileManager
-import io.nekohasekai.sagernet.database.RuleEntity
-import io.nekohasekai.sagernet.database.SagerDatabase
-import io.nekohasekai.sagernet.databinding.LayoutEmptyRouteBinding
-import io.nekohasekai.sagernet.databinding.LayoutRouteItemBinding
-import io.nekohasekai.sagernet.ktx.*
+import io.nekohasekai.sagernet.database.RouteManager
+import io.nekohasekai.sagernet.database.RouteRepo
+import io.nekohasekai.sagernet.databinding.LayoutProgressListBinding
+import io.nekohasekai.sagernet.databinding.LayoutRouteProfileItemBinding
+import io.nekohasekai.sagernet.group.RemoteRouteUpdater
+import io.nekohasekai.sagernet.ktx.FixedLinearLayoutManager
+import io.nekohasekai.sagernet.ktx.dp2px
+import androidx.core.view.updatePadding
+import io.nekohasekai.sagernet.ktx.needReload
+import io.nekohasekai.sagernet.ktx.onMainDispatcher
+import io.nekohasekai.sagernet.ktx.runOnLifecycleDispatcher
+import io.nekohasekai.sagernet.ktx.showAllowingStateLoss
+import io.nekohasekai.sagernet.ktx.snackbar
+import io.nekohasekai.sagernet.route.RouteProfile
+import io.nekohasekai.sagernet.route.RouteShare
+import io.nekohasekai.sagernet.route.RuleType
+import io.nekohasekai.sagernet.ui.route.RouteImports
+import io.nekohasekai.sagernet.route.RouteJson
+import io.nekohasekai.sagernet.ui.route.RouteProfileActivity
+import io.nekohasekai.sagernet.ui.route.RouteQuickSwitch
+import io.nekohasekai.sagernet.ui.route.RouteTexts
 import io.nekohasekai.sagernet.widget.ListListener
-import io.nekohasekai.sagernet.widget.UndoSnackbarManager
+import androidx.core.view.ViewCompat
+import io.nekohasekai.sagernet.ui.route.confirmAction
+import io.nekohasekai.sagernet.widget.QRCodeDialog
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 
+/**
+ * Ported from ThroneForAndroid (ui/RouteFragment.kt); OwnBox drops Throne's "update rule-sets" (core call) and QR
+ * scan entries, and its routing-settings item opens OwnBox's own settings screen.
+ *
+ * The route profiles (the desktop Routes dialog): tap to make one current, per-profile edit / clone / share /
+ * update / delete, and the toolbar's new, import, download, update and repository actions.
+ */
 class RouteFragment : ToolbarFragment(R.layout.layout_route), Toolbar.OnMenuItemClickListener {
 
-    companion object {
-        val CN_APPS = setOf(
-            "com.tencent.mm",
-            "com.tencent.mobileqq",
-            "com.eg.android.AlipayGphone",
-            "com.taobao.taobao",
-            "com.jingdong.app.mall",
-            "tv.danmaku.bili",
-            "com.ss.android.ugc.aweme",
-            "com.netease.cloudmusic",
-            "com.autonavi.minimap",
-            "com.baidu.BaiduMap",
-            "com.xunmeng.pinduoduo",
-            "com.sankuai.meituan",
-            "com.zhihu.android",
-            "com.sina.weibo",
-            "com.coolapk.market",
-        )
+    private lateinit var list: RecyclerView
+    private val adapter = ProfileAdapter()
+    private val onRoutesChanged: () -> Unit = { reload() }
+    private var progressDialog: AlertDialog? = null
+    private var remoteUpdateJob: Job? = null
 
-        val FOREIGN_APPS = setOf(
-            "org.telegram.messenger",
-            "org.thunderdog.challegram",
-            "com.google.android.youtube",
-            "com.twitter.android",
-            "com.android.chrome",
-            "com.google.android.gms",
-            "com.android.vending",
-            "com.discord",
-            "com.whatsapp",
-            "com.instagram.android",
-            "com.zhiliaoapp.musically",
-            "com.openai.chatgpt",
-            "com.netflix.mediaclient",
-            "com.spotify.music",
-        )
-    }
+    /** Remote profiles whose update is running. */
+    private val updating = HashSet<Long>()
 
-    lateinit var activity: MainActivity
-    lateinit var ruleListView: RecyclerView
-    lateinit var ruleAdapter: RuleAdapter
-    lateinit var undoManager: UndoSnackbarManager<RuleEntity>
-
-    fun autoReloadServiceIfStarted() {
-        if (DataStore.serviceState.started) {
-            runOnDefaultDispatcher {
-                try {
-                    SagerNet.reloadService()
-                } catch (e: Exception) {
-                    Logs.w(e)
-                }
-            }
-        }
+    private val editor = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode != Activity.RESULT_OK) return@registerForActivityResult
+        val id = result.data?.getLongExtra(RouteProfileActivity.EXTRA_SAVED_ID, 0L) ?: 0L
+        // D15: editing the active profile prompts a reload like other config-affecting settings.
+        if (id != 0L && id == DataStore.currentRouteId) needReload()
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-
-        activity = requireActivity() as MainActivity
-
+        toolbar?.setTitle(R.string.menu_route)
+        toolbar?.inflateMenu(R.menu.route_menu)
+        toolbar?.setOnMenuItemClickListener(this)
+        list = view.findViewById(R.id.route_list)
+        // As the old OwnBox route list: the root pads the navigation bar, the list pads OwnBox's bottom bar.
         ViewCompat.setOnApplyWindowInsetsListener(view, ListListener)
-        toolbar.setTitle(R.string.menu_route)
-        toolbar.inflateMenu(R.menu.add_route_menu)
-        toolbar.setOnMenuItemClickListener(this)
-
-        ruleListView = view.findViewById(R.id.route_list)
+        list.layoutManager = FixedLinearLayoutManager(list)
+        list.adapter = adapter
         updateBottomPadding()
-        ruleListView.layoutManager = FixedLinearLayoutManager(ruleListView)
-        ruleAdapter = RuleAdapter()
-        ProfileManager.addListener(ruleAdapter)
-        ruleListView.adapter = ruleAdapter
-        undoManager = UndoSnackbarManager(activity, ruleAdapter)
-
-        ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(ItemTouchHelper.UP or ItemTouchHelper.DOWN, ItemTouchHelper.START) {
-
-            override fun getSwipeDirs(
-                recyclerView: RecyclerView,
-                viewHolder: RecyclerView.ViewHolder,
-            ) = if (viewHolder is RuleAdapter.DocumentHolder) {
-                0
-            } else {
-                super.getSwipeDirs(recyclerView, viewHolder)
-            }
-
-            override fun getDragDirs(
-                recyclerView: RecyclerView,
-                viewHolder: RecyclerView.ViewHolder,
-            ) = if (viewHolder is RuleAdapter.DocumentHolder) {
-                0
-            } else {
-                super.getDragDirs(recyclerView, viewHolder)
-            }
-
-            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
-                val index = viewHolder.bindingAdapterPosition
-                ruleAdapter.remove(index)
-                undoManager.remove(index to (viewHolder as RuleAdapter.RuleHolder).rule)
-            }
-
-            override fun onMove(
-                recyclerView: RecyclerView,
-                viewHolder: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder,
-            ): Boolean {
-                return if (target is RuleAdapter.DocumentHolder) {
-                    false
-                } else {
-                    ruleAdapter.move(viewHolder.bindingAdapterPosition, target.bindingAdapterPosition)
-                    true
-                }
-            }
-
-            override fun clearView(
-                recyclerView: RecyclerView,
-                viewHolder: RecyclerView.ViewHolder,
-            ) {
-                super.clearView(recyclerView, viewHolder)
-                ruleAdapter.commitMove()
-            }
-        }).attachToRecyclerView(ruleListView)
+        RouteManager.addListener(onRoutesChanged)
+        reload()
     }
 
+    override fun onDestroyView() {
+        RouteManager.removeListener(onRoutesChanged)
+        progressDialog?.dismiss()
+        progressDialog = null
+        super.onDestroyView()
+    }
+
+    /** OwnBox's bottom stats bar overlaps the list unless it reserves room for it (MainActivity calls this). */
     fun updateBottomPadding() {
-        if (!::ruleListView.isInitialized) return
-        ruleListView.clipToPadding = false
-        ruleListView.updatePadding(bottom = dp2px(if (DataStore.showBottomBar) 80 else 4))
+        if (!::list.isInitialized) return
+        list.clipToPadding = false
+        list.updatePadding(bottom = dp2px(if (DataStore.showBottomBar) 80 else 4))
     }
 
-    override fun onDestroy() {
-        if (::ruleAdapter.isInitialized) {
-            ProfileManager.removeListener(ruleAdapter)
+    private fun reload() {
+        runOnLifecycleDispatcher {
+            val profiles = RouteManager.all()
+            val currentId = RouteManager.current().id
+            onMainDispatcher {
+                if (view != null) adapter.submit(profiles, currentId)
+            }
         }
-        super.onDestroy()
     }
 
     override fun onMenuItemClick(item: MenuItem): Boolean {
         when (item.itemId) {
-            R.id.action_new_route -> {
-                startActivity(Intent(context, RouteSettingsActivity::class.java))
+            R.id.action_route_new_structured -> newProfile(remote = false)
+            R.id.action_route_new_remote -> newProfile(remote = true)
+            R.id.action_route_import -> importFromClipboard()
+            R.id.action_route_download -> downloadProfiles()
+            R.id.action_route_update_all -> updateAll()
+            R.id.action_route_refresh_repo -> refreshRepository()
+            R.id.action_route_manage_assets -> startActivity(Intent(requireContext(), AssetsActivity::class.java))
+            R.id.action_routing_settings -> (activity as? MainActivity)?.let {
+                it.displayFragmentWithId(R.id.nav_settings)
+                it.setCheckedItem(R.id.nav_settings)
             }
-            R.id.action_reset_route -> {
-                MaterialAlertDialogBuilder(activity).setTitle(R.string.confirm)
-                    .setMessage(R.string.clear_profiles_message)
-                    .setPositiveButton(R.string.yes) { _, _ ->
-                        runOnDefaultDispatcher {
-                            SagerDatabase.rulesDao.reset()
-                            DataStore.rulesFirstCreate = false
-                            ruleAdapter.reload()
-                            autoReloadServiceIfStarted()
-                        }
-                    }
-                    .setNegativeButton(R.string.no, null)
-                    .show()
-            }
-            R.id.action_manage_assets -> {
-                startActivity(Intent(requireContext(), AssetsActivity::class.java))
-            }
-            R.id.action_preset_routes -> {
-                val presets = arrayOf(
-                    getString(R.string.preset_bypass_cn_apps),
-                    getString(R.string.preset_proxy_foreign_apps),
-                    getString(R.string.route_opt_block_ads)
-                )
-                MaterialAlertDialogBuilder(activity)
-                    .setTitle(R.string.route_preset_title)
-                    .setItems(presets) { _, which ->
-                        runOnDefaultDispatcher {
-                            when (which) {
-                                0 -> {
-                                    val rule = RuleEntity(
-                                        name = getString(R.string.preset_bypass_cn_apps),
-                                        packages = CN_APPS,
-                                        outbound = -1L,
-                                        enabled = true
-                                    )
-                                    ProfileManager.createRule(rule)
-                                }
-                                1 -> {
-                                    val rule = RuleEntity(
-                                        name = getString(R.string.preset_proxy_foreign_apps),
-                                        packages = FOREIGN_APPS,
-                                        outbound = 0L,
-                                        enabled = true
-                                    )
-                                    ProfileManager.createRule(rule)
-                                }
-                                2 -> {
-                                    val rule = RuleEntity(
-                                        name = getString(R.string.route_opt_block_ads),
-                                        domains = "geosite:category-ads-all\ndomain:adservice.google.com\ndomain:admob.com\ndomain:doubleclick.net\ndomain:pangolin-sdk-toutiao.com",
-                                        outbound = -2L,
-                                        enabled = true
-                                    )
-                                    ProfileManager.createRule(rule)
-                                }
-                            }
-                            autoReloadServiceIfStarted()
-                            onMainDispatcher {
-                                snackbar(R.string.preset_applied_toast).show()
-                                ruleAdapter.reload()
-                            }
-                        }
-                    }
-                    .setNegativeButton(android.R.string.cancel, null)
-                    .show()
-            }
+
+            else -> return false
         }
         return true
     }
 
-    inner class RuleAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>(), ProfileManager.RuleListener, UndoSnackbarManager.Interface<RuleEntity> {
-
-        val ruleList = ArrayList<RuleEntity>()
-        suspend fun reload() {
-            val rules = ProfileManager.getRules()
-            ruleListView.post {
-                ruleList.clear()
-                ruleList.addAll(rules)
-                ruleAdapter.notifyDataSetChanged()
-            }
-        }
-
-        init {
-            runOnDefaultDispatcher {
-                reload()
-            }
-        }
-
-        override fun onCreateViewHolder(
-            parent: ViewGroup,
-            viewType: Int,
-        ): RecyclerView.ViewHolder {
-            return if (viewType == 0) {
-                DocumentHolder(LayoutEmptyRouteBinding.inflate(layoutInflater, parent, false))
-            } else {
-                RuleHolder(LayoutRouteItemBinding.inflate(layoutInflater, parent, false))
-            }
-        }
-
-        override fun getItemViewType(position: Int): Int {
-            if (position == 0) return 0
-            return 1
-        }
-
-        override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
-            if (holder is DocumentHolder) {
-                holder.bind()
-            } else if (holder is RuleHolder) {
-                holder.bind(ruleList[position - 1])
-            }
-        }
-
-        override fun getItemCount(): Int {
-            return ruleList.size + 1
-        }
-
-        override fun getItemId(position: Int): Long {
-            if (position == 0) return 0L
-            return ruleList[position - 1].id
-        }
-
-        private val updated = HashSet<RuleEntity>()
-        fun move(from: Int, to: Int) {
-            val first = ruleList[from - 1]
-            var previousOrder = first.userOrder
-            val (step, range) = if (from < to) Pair(1, from - 1 until to - 1) else Pair(-1, to downTo from - 1)
-            for (i in range) {
-                val next = ruleList[i + step]
-                val order = next.userOrder
-                next.userOrder = previousOrder
-                previousOrder = order
-                ruleList[i] = next
-                updated.add(next)
-            }
-            first.userOrder = previousOrder
-            ruleList[to - 1] = first
-            updated.add(first)
-            notifyItemMoved(from, to)
-        }
-
-        fun commitMove() = runOnDefaultDispatcher {
-            if (updated.isNotEmpty()) {
-                SagerDatabase.rulesDao.updateRules(updated.toList())
-                updated.clear()
-                autoReloadServiceIfStarted()
-            }
-        }
-
-        fun remove(index: Int) {
-            ruleList.removeAt(index - 1)
-            notifyItemRemoved(index)
-        }
-
-        override fun undo(actions: List<Pair<Int, RuleEntity>>) {
-            for ((index, item) in actions) {
-                ruleList.add(index - 1, item)
-                notifyItemInserted(index)
-            }
-        }
-
-        override fun commit(actions: List<Pair<Int, RuleEntity>>) {
-            val rules = actions.map { it.second }
-            runOnDefaultDispatcher {
-                ProfileManager.deleteRules(rules)
-                autoReloadServiceIfStarted()
-            }
-        }
-
-        override suspend fun onAdd(rule: RuleEntity) {
-            ruleListView.post {
-                ruleList.add(rule)
-                ruleAdapter.notifyItemInserted(ruleList.size)
-                autoReloadServiceIfStarted()
-            }
-        }
-
-        override suspend fun onUpdated(rule: RuleEntity) {
-            val index = ruleList.indexOfFirst { it.id == rule.id }
-            if (index == -1) return
-            ruleListView.post {
-                ruleList[index] = rule
-                ruleAdapter.notifyItemChanged(index + 1)
-                autoReloadServiceIfStarted()
-            }
-        }
-
-        override suspend fun onRemoved(ruleId: Long) {
-            val index = ruleList.indexOfFirst { it.id == ruleId }
-            if (index == -1) {
-                onMainDispatcher {
-                    autoReloadServiceIfStarted()
-                }
-            } else ruleListView.post {
-                ruleList.removeAt(index)
-                ruleAdapter.notifyItemRemoved(index + 1)
-                autoReloadServiceIfStarted()
-            }
-        }
-
-        override suspend fun onCleared() {
-            ruleListView.post {
-                ruleList.clear()
-                ruleAdapter.notifyDataSetChanged()
-                autoReloadServiceIfStarted()
-            }
-        }
-
-        inner class DocumentHolder(binding: LayoutEmptyRouteBinding) : RecyclerView.ViewHolder(binding.root) {
-            fun bind() {
-                itemView.setOnClickListener {
-                    it.context.launchCustomTab("https://t.me/OwnBoxs")
-                }
-            }
-        }
-
-        inner class RuleHolder(binding: LayoutRouteItemBinding) : RecyclerView.ViewHolder(binding.root) {
-
-            lateinit var rule: RuleEntity
-            val profileName = binding.profileName
-            val profileType = binding.profileType
-            val routeOutbound = binding.routeOutbound
-            val editButton = binding.edit
-            val shareLayout = binding.share
-            val enableSwitch = binding.enable
-
-            fun bind(ruleEntity: RuleEntity) {
-                rule = ruleEntity
-                profileName.text = rule.displayName()
-                profileType.text = rule.mkSummary()
-                routeOutbound.text = rule.displayOutbound()
-
-                // 根据路由类型设置文字颜色
-                val colorRes = when (rule.outbound) {
-                    -2L -> R.color.color_route_block   // 屏蔽：红色
-                    -1L -> R.color.color_route_direct  // 直连：绿色
-                    0L -> R.color.color_route_proxy    // 代理：蓝色
-                    else -> R.color.color_route_config // 配置：紫色
-                }
-                routeOutbound.setTextColor(ContextCompat.getColor(itemView.context, colorRes))
-
-                itemView.setOnClickListener(null)
-                itemView.isClickable = false
-                itemView.isFocusable = false
-                enableSwitch.setOnCheckedChangeListener(null)
-                enableSwitch.isChecked = rule.enabled
-                enableSwitch.setOnCheckedChangeListener { _, isChecked ->
-                    runOnDefaultDispatcher {
-                        rule.enabled = isChecked
-                        SagerDatabase.rulesDao.updateRule(rule)
-                        autoReloadServiceIfStarted()
-                    }
-                }
-                editButton.setOnClickListener {
-                    startActivity(Intent(it.context, RouteSettingsActivity::class.java).apply {
-                        putExtra(RouteSettingsActivity.EXTRA_ROUTE_ID, rule.id)
-                    })
-                }
-            }
-        }
-
+    private fun message(title: Int, text: String) {
+        val context = context ?: return
+        RouteImports.showMessage(context, title, text)
     }
 
+    private fun newProfile(remote: Boolean) {
+        editor.launch(Intent(requireContext(), RouteProfileActivity::class.java).putExtra(RouteProfileActivity.EXTRA_REMOTE, remote))
+    }
+
+    private fun edit(id: Long) {
+        editor.launch(Intent(requireContext(), RouteProfileActivity::class.java).putExtra(RouteProfileActivity.EXTRA_PROFILE_ID, id))
+    }
+
+    private fun select(profile: RouteProfile) {
+        if (profile.is_raw) {
+            snackbar(R.string.route_raw_not_usable).show()
+            return
+        }
+        if (profile.id == adapter.currentId) return
+        RouteQuickSwitch.switchTo(profile.id)
+        adapter.setCurrent(profile.id)
+        snackbar(getString(R.string.route_switched, profile.name)).show()
+    }
+
+    private fun clone(id: Long) = runOnLifecycleDispatcher {
+        val profile = RouteManager.get(id) ?: return@runOnLifecycleDispatcher
+        val copy = profile.copy().apply {
+            this.id = 0L
+            name = profile.name + " clone"
+        }
+        RouteManager.save(copy)
+        onMainDispatcher {
+            if (isAdded) snackbar(getString(R.string.route_cloned, copy.name)).show()
+        }
+    }
+
+    /** ToShareLink; rules whose server is gone are left out, and app rules are Android-only, so both are pointed out. */
+    private fun share(id: Long, qr: Boolean) = runOnLifecycleDispatcher {
+        val profile = RouteManager.get(id) ?: return@runOnLifecycleDispatcher
+        val names = HashMap<Long, String?>()
+        val nameOf: (Long) -> String? = { server -> names.getOrPut(server) { RouteManager.profileName(server) } }
+        val link = RouteShare.toShareLink(profile, nameOf)
+        val shared = profile.rules.filter { rule ->
+            val type = RuleType.ofId(rule.type)
+            type != RuleType.ENDPOINT_PREFERRED_BY && !(type != RuleType.CUSTOM && rule.isEmpty())
+        }
+        val dropped = shared.count { it.toRuleJson(true, null, nameOf).isEmpty() }
+        val appRules = shared.any { rule ->
+            rule.package_name.any { it.isNotBlank() } && rule.toRuleJson(true, null, nameOf).isNotEmpty()
+        }
+        onMainDispatcher {
+            if (!isAdded) return@onMainDispatcher
+            val warnings = ArrayList<String>()
+            if (dropped > 0) warnings.add(resources.getQuantityString(R.plurals.route_export_dropped, dropped, dropped))
+            if (appRules) warnings.add(getString(R.string.route_export_package_note))
+            if (qr) {
+                QRCodeDialog(link, profile.name).showAllowingStateLoss(parentFragmentManager)
+                if (warnings.isNotEmpty()) snackbar(warnings.joinToString("\n")).show()
+                return@onMainDispatcher
+            }
+            if (!SagerNet.trySetPrimaryClip(link)) {
+                snackbar(R.string.action_export_err).show()
+            } else if (warnings.isEmpty()) {
+                snackbar(R.string.route_link_copied).show()
+            } else {
+                message(R.string.route_export_warnings_title, getString(R.string.route_link_copied) + "\n\n" + warnings.joinToString("\n\n"))
+            }
+        }
+    }
+
+    private fun delete(profile: RouteProfile) {
+        if (adapter.itemCount <= 1) {
+            lastProfileError()
+            return
+        }
+        fun doDelete() = runOnLifecycleDispatcher {
+            val wasCurrent = DataStore.currentRouteId == profile.id
+            val deleted = RouteManager.delete(profile.id)
+            onMainDispatcher {
+                if (!isAdded) return@onMainDispatcher
+                if (!deleted) lastProfileError() else if (wasCurrent) needReload()
+            }
+        }
+        requireContext().confirmAction(getString(R.string.confirm_remove_route_profile), profile.name, R.string.delete) {
+            doDelete()
+        }
+    }
+
+    private fun lastProfileError() = message(R.string.route_profile_invalid_title, getString(R.string.route_delete_last))
+
+    // ------------------------------------------------------------------------------------------------ import
+
+    /** The desktop Routes dialog's Import: the clipboard first, then a paste dialog (dialog_manage_routes.cpp:687-737). */
+    private fun importFromClipboard() {
+        val activity = requireActivity() as AppCompatActivity
+        val clip = SagerNet.getClipboardText().trim()
+        if (RouteImports.isRemoteRouteLink(clip)) {
+            RouteImports.remoteEntries(activity, clip)?.let { RouteImports.promptRemote(activity, it) }
+            return
+        }
+        if (clip.isEmpty()) {
+            pasteDialog()
+            return
+        }
+        viewLifecycleOwner.lifecycleScope.launch {
+            val imported = RouteImports.parse(clip)
+            val profile = imported.profile
+            if (profile == null) {
+                pasteDialog()
+                return@launch
+            }
+            val prompt = if (imported.legacyArray) {
+                getString(R.string.route_import_clipboard_rules)
+            } else {
+                getString(R.string.route_import_clipboard_profile, RouteImports.nameOf(activity, profile))
+            }
+            MaterialAlertDialogBuilder(activity)
+                .setTitle(R.string.route_import_clipboard_title)
+                .setMessage(RouteImports.withNotes(activity, prompt, imported.warnings))
+                .setPositiveButton(R.string.yes) { _, _ -> applyImported(profile, imported.legacyArray) }
+                .setNegativeButton(R.string.no) { _, _ -> pasteDialog() }
+                .show()
+        }
+    }
+
+    private fun pasteDialog() {
+        val activity = activity as? AppCompatActivity ?: return
+        val layout = TextInputLayout(activity).apply { hint = getString(R.string.route_import_paste_hint) }
+        val input = TextInputEditText(layout.context).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            minLines = 3
+            maxLines = 8
+            gravity = Gravity.TOP or Gravity.START
+        }
+        layout.addView(input)
+        val container = FrameLayout(activity).apply {
+            setPadding(dp2px(20), dp2px(12), dp2px(20), 0)
+            addView(layout)
+        }
+        val dialog = MaterialAlertDialogBuilder(activity)
+            .setTitle(R.string.route_import_paste_title)
+            .setView(container)
+            .setPositiveButton(android.R.string.ok, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val text = input.text?.toString()?.trim().orEmpty()
+            if (RouteImports.isRemoteRouteLink(text)) {
+                val entries = RouteImports.remoteEntries(activity, text) ?: return@setOnClickListener
+                dialog.dismiss()
+                RouteImports.promptRemote(activity, entries)
+                return@setOnClickListener
+            }
+            activity.lifecycleScope.launch {
+                val imported = RouteImports.parse(text)
+                val profile = imported.profile
+                if (profile == null) {
+                    RouteImports.showMessage(activity, R.string.route_import_invalid_title, getString(R.string.route_import_invalid, imported.fatal))
+                    return@launch
+                }
+                dialog.dismiss()
+                if (imported.warnings.isNotEmpty()) {
+                    RouteImports.showMessage(activity, R.string.route_import_warnings_title, imported.warnings.joinToString("\n"))
+                }
+                applyImported(profile, imported.legacyArray)
+            }
+        }
+    }
+
+    /** A legacy rule array has no name or default outbound, so it opens in the editor as a new profile. */
+    private fun applyImported(profile: RouteProfile, legacyArray: Boolean) {
+        val context = context ?: return
+        if (legacyArray) {
+            editor.launch(Intent(context, RouteProfileActivity::class.java).putExtra(
+                RouteProfileActivity.EXTRA_PROFILE_JSON, RouteJson.profileToJson(profile)
+            ))
+            return
+        }
+        profile.name = RouteImports.nameOf(context, profile)
+        runOnLifecycleDispatcher {
+            RouteManager.save(profile)
+            onMainDispatcher {
+                if (isAdded) snackbar(getString(R.string.route_imported, profile.name)).show()
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------------------------------------ remote
+
+    private fun downloadProfiles() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val bundles = withContext(Dispatchers.IO) { RouteRepo.bundles() }
+            val activity = activity as? AppCompatActivity ?: return@launch
+            if (bundles.isEmpty()) {
+                message(R.string.route_download_profiles, getString(R.string.route_download_empty))
+                return@launch
+            }
+            val countries = Array<CharSequence>(bundles.size) { bundles[it].country }
+            MaterialAlertDialogBuilder(activity)
+                .setTitle(R.string.route_download_profiles)
+                .setItems(countries) { _, which -> RouteImports.promptRemote(activity, bundles[which].entries) }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+    }
+
+    private fun updateAll() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val remotes = withContext(Dispatchers.IO) {
+                RouteManager.all().filter { it.is_remote && it.remote_url.isNotBlank() }.map { it.id }
+            }
+            if (remotes.isEmpty()) {
+                message(R.string.route_update_none_title, getString(R.string.route_update_none))
+            } else {
+                runRemoteUpdates(remotes)
+            }
+        }
+    }
+
+    /**
+     * updateRemoteProfiles (dialog_manage_routes.cpp:825-872): one profile at a time with "Updating (i / n)",
+     * cancellable between profiles, then the desktop's result texts. Every listed profile is fetched, auto update or not.
+     */
+    private fun runRemoteUpdates(ids: List<Long>) {
+        if (remoteUpdateJob?.isActive == true) return
+        val binding = LayoutProgressListBinding.inflate(layoutInflater)
+        binding.progressCircular.isGone = true
+        binding.progressLinear.isVisible = true
+        binding.progressLinear.max = ids.size
+        val cancelled = AtomicBoolean(false)
+        val dialog = MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.route_update_title)
+            .setView(binding.root)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setCancelable(false)
+            .show()
+        progressDialog = dialog
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
+            cancelled.set(true)
+            it.isEnabled = false
+            binding.progress.setText(R.string.route_update_cancelling)
+        }
+        val total = ids.size
+        remoteUpdateJob = viewLifecycleOwner.lifecycleScope.launch {
+            var updated = 0
+            val failures = ArrayList<String>()
+            var currentChanged = false
+            for ((i, id) in ids.withIndex()) {
+                if (cancelled.get()) break
+                binding.progress.text = if (total <= 1) getString(R.string.route_updating) else getString(R.string.route_updating_n, i + 1, total)
+                binding.progressLinear.setProgressCompat(i, true)
+                updating.add(id)
+                adapter.notifyProfileChanged(id)
+                val result = withContext(Dispatchers.IO) {
+                    val profile = RouteManager.get(id) ?: return@withContext null
+                    profile.name to RemoteRouteUpdater.update(profile)
+                }
+                updating.remove(id)
+                adapter.notifyProfileChanged(id)
+                if (result == null) continue
+                val error = result.second
+                if (error == null) {
+                    updated++
+                    if (id == DataStore.currentRouteId) currentChanged = true
+                } else {
+                    failures.add(result.first + ": " + error)
+                }
+            }
+            dialog.dismiss()
+            progressDialog = null
+            when {
+                cancelled.get() -> message(
+                    R.string.route_update_cancelled_title, getString(R.string.route_update_cancelled, updated, total, failures.size)
+                )
+
+                failures.isEmpty() -> message(
+                    R.string.route_update_complete_title, resources.getQuantityString(R.plurals.route_update_complete, updated, updated)
+                )
+
+                else -> message(
+                    R.string.route_update_errors_title,
+                    getString(R.string.route_update_errors, updated, failures.size, failures.joinToString("\n"))
+                )
+            }
+            if (currentChanged) needReload()
+        }
+    }
+
+    private fun refreshRepository() {
+        val binding = LayoutProgressListBinding.inflate(layoutInflater)
+        binding.progress.setText(R.string.route_repo_running)
+        val dialog = MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.route_refresh_repo)
+            .setView(binding.root)
+            .setCancelable(false)
+            .show()
+        progressDialog = dialog
+        viewLifecycleOwner.lifecycleScope.launch {
+            val (error, ruleSets, bundles) = withContext(Dispatchers.IO) {
+                val error = RouteRepo.refresh()
+                Triple(error, RouteManager.catalog().size, RouteRepo.bundles().size)
+            }
+            dialog.dismiss()
+            progressDialog = null
+            if (error == null) {
+                snackbar(getString(R.string.route_repo_done, ruleSets, bundles)).show()
+            } else {
+                message(R.string.route_refresh_repo, getString(R.string.route_repo_failed, error))
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------------------------------------ list
+
+    private inner class ProfileAdapter : RecyclerView.Adapter<ProfileHolder>() {
+        var profiles: List<RouteProfile> = emptyList()
+        var currentId = 0L
+
+        init {
+            setHasStableIds(true)
+        }
+
+        @SuppressLint("NotifyDataSetChanged")
+        fun submit(profiles: List<RouteProfile>, currentId: Long) {
+            this.profiles = profiles
+            this.currentId = currentId
+            notifyDataSetChanged()
+        }
+
+        fun setCurrent(id: Long) {
+            val old = profiles.indexOfFirst { it.id == currentId }
+            currentId = id
+            if (old >= 0) notifyItemChanged(old)
+            notifyProfileChanged(id)
+        }
+
+        fun notifyProfileChanged(id: Long) {
+            val index = profiles.indexOfFirst { it.id == id }
+            if (index >= 0) notifyItemChanged(index)
+        }
+
+        override fun getItemCount() = profiles.size
+
+        override fun getItemId(position: Int) = profiles[position].id
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) =
+            ProfileHolder(LayoutRouteProfileItemBinding.inflate(layoutInflater, parent, false))
+
+        override fun onBindViewHolder(holder: ProfileHolder, position: Int) {
+            val profile = profiles[position]
+            holder.bind(profile, profile.id == currentId)
+        }
+    }
+
+    private inner class ProfileHolder(val binding: LayoutRouteProfileItemBinding) : RecyclerView.ViewHolder(binding.root) {
+
+        fun bind(profile: RouteProfile, current: Boolean) {
+            val context = itemView.context
+            binding.profileName.text = profile.name
+            binding.profileName.setTypeface(null, if (current) Typeface.BOLD else Typeface.NORMAL)
+            binding.activeMark.isVisible = current
+            binding.profileSummary.text = if (profile.is_raw) getString(R.string.route_raw_summary) else getString(
+                R.string.route_item_default_outbound, RouteTexts.outboundName(context, profile.default_outbound_id, emptyMap())
+            ) + " · " + resources.getQuantityString(R.plurals.route_item_rules, profile.rules.size, profile.rules.size)
+            binding.profileRemote.isVisible = profile.is_remote
+            if (profile.is_remote) {
+                val updated = if (profile.remote_last_update > 0) {
+                    getString(R.string.route_item_remote_updated, RouteTexts.dateTime(context, profile.remote_last_update))
+                } else {
+                    getString(R.string.route_item_remote_never)
+                }
+                val auto = getString(if (profile.auto_update) R.string.route_item_auto_update_on else R.string.route_item_auto_update_off)
+                binding.profileRemote.text = "$updated · $auto"
+            }
+            binding.updateProgress.isVisible = profile.id in updating
+            itemView.setOnClickListener { select(profile) }
+            binding.edit.setOnClickListener { edit(profile.id) }
+            binding.options.setOnClickListener { showMenu(it, profile) }
+        }
+
+        private fun showMenu(anchor: View, profile: RouteProfile) {
+            val popup = PopupMenu(requireContext(), anchor)
+            popup.menuInflater.inflate(R.menu.route_item_menu, popup.menu)
+            if (!profile.is_remote) popup.menu.removeItem(R.id.action_route_update)
+            if (profile.is_raw) {
+                popup.menu.findItem(R.id.action_route_edit)?.setTitle(R.string.route_raw_view)
+                popup.menu.removeItem(R.id.action_route_clone)
+                popup.menu.removeItem(R.id.action_route_share)
+            }
+            popup.setOnMenuItemClickListener { item ->
+                when (item.itemId) {
+                    R.id.action_route_edit -> edit(profile.id)
+                    R.id.action_route_clone -> clone(profile.id)
+                    R.id.action_route_share_clipboard -> share(profile.id, qr = false)
+                    R.id.action_route_share_qr -> share(profile.id, qr = true)
+                    R.id.action_route_update -> runRemoteUpdates(listOf(profile.id))
+                    R.id.action_route_delete -> delete(profile)
+                    else -> return@setOnMenuItemClickListener false
+                }
+                true
+            }
+            popup.show()
+        }
+    }
 }

@@ -17,8 +17,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [ProxyGroup::class, ProxyEntity::class, RuleEntity::class],
-    version = 10,
+    entities = [ProxyGroup::class, ProxyEntity::class, RouteProfileEntity::class, RouteRuleEntity::class],
+    version = 11,
     autoMigrations = [
         AutoMigration(from = 3, to = 4),
         AutoMigration(from = 4, to = 5),
@@ -56,6 +56,17 @@ abstract class SagerDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * 10 -> 11: the flat `rules` table is replaced by Throne's route profiles (`route_profiles` / `route_rules`).
+         * Existing rules are converted into a "Default" profile (enabled rules, in their old order) and, when there
+         * were disabled rules, a second profile holding those so nothing is lost. See [LegacyRuleMigration].
+         */
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                LegacyRuleMigration.migrate(database)
+            }
+        }
+
         val instance by lazy {
             val app = SagerNet.application
             app.getDatabasePath(Key.DB_PROFILE).parentFile?.mkdirs()
@@ -64,7 +75,7 @@ abstract class SagerDatabase : RoomDatabase() {
                     .setJournalMode(JournalMode.TRUNCATE)
                     .allowMainThreadQueries()
                     .enableMultiInstanceInvalidation()
-                    .addMigrations(MIGRATION_9_10)
+                    .addMigrations(MIGRATION_9_10, MIGRATION_10_11)
                     .setQueryExecutor(kotlinx.coroutines.Dispatchers.IO.asExecutor())
                     .build()
             }
@@ -107,12 +118,12 @@ abstract class SagerDatabase : RoomDatabase() {
 
         val groupDao get() = instance.groupDao()
         val proxyDao get() = instance.proxyDao()
-        val rulesDao get() = instance.rulesDao()
+        val routeDao get() = instance.routeDao()
 
     }
 
     abstract fun groupDao(): ProxyGroup.Dao
     abstract fun proxyDao(): ProxyEntity.Dao
-    abstract fun rulesDao(): RuleEntity.Dao
+    abstract fun routeDao(): RouteDao
 
 }

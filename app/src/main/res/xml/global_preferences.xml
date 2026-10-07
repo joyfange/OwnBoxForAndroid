@@ -287,6 +287,22 @@
             app:summary="@string/ruleset_update_interval_summary"
             app:title="@string/ruleset_update_interval" />
 
+        <moe.matsuri.nb4a.ui.SimpleMenuPreference
+            app:defaultValue="0"
+            app:entries="@array/ruleset_mirror_entries"
+            app:entryValues="@array/int_array_6"
+            app:icon="@drawable/ic_baseline_rule_folder_24"
+            app:key="rulesetMirror"
+            app:title="@string/ruleset_mirror"
+            app:useSimpleSummaryProvider="true" />
+
+        <EditTextPreference
+            app:defaultValue="0"
+            app:icon="@drawable/ic_baseline_update_24"
+            app:key="routeAutoUpdate"
+            app:summary="@string/route_auto_update_summary"
+            app:title="@string/route_auto_update" />
+
     </moe.matsuri.nb4a.ui.ExpandablePreferenceCategory>
 
     <!-- 5. DNS 设置 -->
