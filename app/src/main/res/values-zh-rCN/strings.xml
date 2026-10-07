@@ -1287,4 +1287,26 @@
     <string name="color_picker_brightness">明度 %1$d%%</string>
     <string name="color_picker_invalid">请输入颜色，例如 #1E88E5</string>
     <string name="color_picker_fallback_note">Android 10 及以下将使用最接近的预设强调色。</string>
+    <string name="connection_copy_all">复制全部</string>
+    <string name="connection_copy_json">复制为 JSON</string>
+    <string name="connection_copied">已复制%s</string>
+    <string name="connection_add_to_route">添加到路由</string>
+    <string name="connection_route_match">匹配条件</string>
+    <string name="connection_route_outbound">动作</string>
+    <string name="connection_route_match_domain">域名: %s</string>
+    <string name="connection_route_match_suffix">域名后缀: %s</string>
+    <string name="connection_route_match_ip">目标 IP: %s</string>
+    <string name="connection_route_match_package">包名: %s</string>
+    <string name="connection_route_match_process">进程: %s</string>
+    <string name="connection_route_proxy">代理</string>
+    <string name="connection_route_direct">直连</string>
+    <string name="connection_route_block">阻断</string>
+    <string name="connection_route_server">指定节点…</string>
+    <string name="connection_route_server_selected">节点: %s</string>
+    <string name="connection_route_no_servers">没有可用的节点</string>
+    <string name="connection_route_continue">检查并保存</string>
+    <string name="connection_route_target_profile">规则将添加到当前路由配置「%s」，可在编辑器中检查后保存。</string>
+    <string name="connection_route_remote_warning">当前为远程路由配置，下次远程更新会覆盖手动添加的规则。</string>
+    <string name="connection_route_nothing">此连接没有可用于匹配的域名、IP、包名或进程。</string>
+    <string name="connection_route_saved">规则已保存到「%s」</string>
 </resources>

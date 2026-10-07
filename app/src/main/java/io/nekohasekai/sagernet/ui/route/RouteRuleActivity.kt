@@ -52,6 +52,9 @@ class RouteRuleActivity : ThemedActivity(R.layout.layout_config_settings), OnPre
     companion object {
         const val EXTRA_RULE = "rule"
         const val EXTRA_INDEX = "index"
+
+        /** The rule was prefilled by the caller (e.g. "Add to route" from a connection): leaving asks to save it. */
+        const val EXTRA_PREFILLED = "prefilled"
         const val RESULT_DELETE = RESULT_FIRST_USER
 
         private const val STATE_ADVANCED = "advancedExpanded"
@@ -156,7 +159,7 @@ class RouteRuleActivity : ThemedActivity(R.layout.layout_config_settings), OnPre
                 PackageCache.awaitLoadSync()
                 if (fresh) {
                     RuleCache.write(rule)
-                    DataStore.dirty = false
+                    DataStore.dirty = intent.getBooleanExtra(EXTRA_PREFILLED, false)
                 }
             }
             loaded = true

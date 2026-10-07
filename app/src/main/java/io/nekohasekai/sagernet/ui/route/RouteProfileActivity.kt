@@ -55,6 +55,13 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
         const val EXTRA_PROFILE_JSON = "profile"
         const val EXTRA_SAVED_ID = "savedId"
 
+        /**
+         * A prefilled rule (RouteJson) to add to the profile named by [EXTRA_PROFILE_ID], e.g. from the connection
+         * detail screen: the rule editor opens on it right away and an accepted rule is inserted ahead of the
+         * routing rules (after leading sniff / DNS rules) so it takes effect; the user still saves the profile.
+         */
+        const val EXTRA_NEW_RULE = "newRule"
+
         private val RULE_NAME = Regex("rule_(\\d{1,6})")
 
         fun nextRuleName(rules: List<RouteRule>): String {
@@ -75,6 +82,9 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
         var dirty = false
         var fetching = false
         var saving = false
+
+        /** Where the pending [EXTRA_NEW_RULE] goes when its editor returns, -1 for none. */
+        var newRuleInsertAt = -1
     }
 
     private val model: EditorModel by viewModels()
@@ -106,13 +116,13 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
         undoManager = UndoSnackbarManager(this, rulesAdapter)
         touchHelper = ItemTouchHelper(TouchCallback()).also { it.attachToRecyclerView(list) }
         onBackPressedDispatcher.addCallback(this) { close() }
-        if (model.profile == null) load()
+        if (model.profile == null) load(fresh = savedInstanceState == null)
     }
 
     override fun snackbarInternal(text: CharSequence): Snackbar =
         Snackbar.make(findViewById(R.id.coordinator), text, Snackbar.LENGTH_LONG)
 
-    private fun load() {
+    private fun load(fresh: Boolean) {
         val id = intent.getLongExtra(EXTRA_PROFILE_ID, 0L)
         val json = intent.getStringExtra(EXTRA_PROFILE_JSON)
         val remote = intent.getBooleanExtra(EXTRA_REMOTE, false)
@@ -144,7 +154,23 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
             model.appLabels = loaded.third
             model.dirty = json != null
             refreshAll()
+            if (fresh) intent.getStringExtra(EXTRA_NEW_RULE)?.let { addPrefilledRule(it) }
         }
+    }
+
+    private fun addPrefilledRule(json: String) {
+        val p = model.profile ?: return
+        if (p.is_raw) return
+        val rule = RouteJson.ruleFromJson(json)
+        if (rule.name.isBlank()) rule.name = nextRuleName(p.rules)
+        val leading = setOf("sniff", "hijack-dns", "resolve", "route-options")
+        model.newRuleInsertAt = p.rules.indexOfFirst { it.effectiveAction() !in leading }
+            .let { if (it < 0) p.rules.size else it }
+        ruleEditor.launch(Intent(this, RouteRuleActivity::class.java).apply {
+            putExtra(RouteRuleActivity.EXTRA_RULE, RouteJson.ruleToJson(rule))
+            putExtra(RouteRuleActivity.EXTRA_INDEX, -1)
+            putExtra(RouteRuleActivity.EXTRA_PREFILLED, true)
+        })
     }
 
     private fun nameRules(p: RouteProfile) {
@@ -281,6 +307,8 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
     }
 
     private fun onRuleResult(code: Int, data: Intent?) {
+        val insertAt = model.newRuleInsertAt
+        model.newRuleInsertAt = -1
         val p = model.profile ?: return
         if (data == null) return
         val index = data.getIntExtra(RouteRuleActivity.EXTRA_INDEX, -1)
@@ -291,6 +319,13 @@ class RouteProfileActivity : ThemedActivity(R.layout.layout_route_profile) {
                     if (rule.name.isBlank()) rule.name = nextRuleName(p.rules)
                     p.rules[index] = rule
                     rulesAdapter.notifyItemChanged(index)
+                } else if (insertAt in 0..p.rules.size) {
+                    if (rule.name.isBlank()) rule.name = nextRuleName(p.rules)
+                    p.rules.add(insertAt, rule)
+                    rulesAdapter.notifyItemInserted(insertAt)
+                    countChanged()
+                    val before = headerAdapter.itemCount + rawAdapter.itemCount + titleAdapter.itemCount
+                    list.post { list.smoothScrollToPosition(before + insertAt) }
                 } else {
                     if (rule.name.isBlank()) rule.name = nextRuleName(p.rules)
                     p.rules.add(rule)

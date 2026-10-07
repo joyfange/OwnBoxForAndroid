@@ -2,6 +2,20 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item
+        android:id="@+id/action_add_to_route"
+        android:icon="@drawable/ic_baseline_add_road_24"
+        android:title="@string/connection_add_to_route"
+        app:showAsAction="ifRoom" />
+    <item
+        android:id="@+id/action_copy_all"
+        android:icon="@drawable/ic_content_copy"
+        android:title="@string/connection_copy_all"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_copy_json"
+        android:title="@string/connection_copy_json"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/action_close_connection"
         android:title="@string/connection_close"
         app:showAsAction="never" />

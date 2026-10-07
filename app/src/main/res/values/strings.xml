@@ -1377,4 +1377,26 @@
     <string name="color_picker_brightness">Brightness %1$d%%</string>
     <string name="color_picker_invalid">Enter a color like #1E88E5</string>
     <string name="color_picker_fallback_note">On Android 10 and below the closest preset accent is used.</string>
+    <string name="connection_copy_all">Copy all</string>
+    <string name="connection_copy_json">Copy as JSON</string>
+    <string name="connection_copied">Copied %s</string>
+    <string name="connection_add_to_route">Add to route</string>
+    <string name="connection_route_match">Match</string>
+    <string name="connection_route_outbound">Action</string>
+    <string name="connection_route_match_domain">Domain: %s</string>
+    <string name="connection_route_match_suffix">Domain suffix: %s</string>
+    <string name="connection_route_match_ip">Destination IP: %s</string>
+    <string name="connection_route_match_package">Package: %s</string>
+    <string name="connection_route_match_process">Process: %s</string>
+    <string name="connection_route_proxy">Proxy</string>
+    <string name="connection_route_direct">Direct</string>
+    <string name="connection_route_block">Block</string>
+    <string name="connection_route_server">Specific node…</string>
+    <string name="connection_route_server_selected">Node: %s</string>
+    <string name="connection_route_no_servers">No nodes available</string>
+    <string name="connection_route_continue">Review &amp; save</string>
+    <string name="connection_route_target_profile">The rule is added to the active route profile “%s”. Review it in the editor, then save.</string>
+    <string name="connection_route_remote_warning">This is a remote route profile: its next remote update replaces manually added rules.</string>
+    <string name="connection_route_nothing">This connection has no domain, IP, package or process to match.</string>
+    <string name="connection_route_saved">Rule saved to “%s”</string>
 </resources>
