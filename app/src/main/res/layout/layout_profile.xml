@@ -147,6 +147,10 @@
                     android:id="@+id/traffic_text"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:gravity="end"
+                    android:singleLine="true"
+                    android:ellipsize="end"
                     tools:text="@string/traffic"
                     android:textAppearance="?android:attr/textAppearanceSmall"
                     android:textColor="?android:attr/textColorSecondary" />

@@ -86,13 +86,8 @@ public class BalancerBean extends InternalBean {
         } else {
             stratName = strategy != null ? strategy : STRATEGY_LEAST_PING;
         }
-        if (balancerType == TYPE_GROUP) {
-            int gCount = targetGroupIds != null && !targetGroupIds.isEmpty() ? targetGroupIds.size() : (targetGroupId > 0 ? 1 : 0);
-            return "[分组 (" + gCount + ")] 策略: " + stratName;
-        } else {
-            int count = proxies != null ? proxies.size() : 0;
-            return "[节点 (" + count + ")] 策略: " + stratName;
-        }
+        // No "[分组 (N)]" / "[节点 (N)]" prefix: it crowded the card subtitle and overlapped the traffic text.
+        return "策略: " + stratName;
     }
 
     @Override

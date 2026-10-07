@@ -3869,6 +3869,27 @@ class ConfigurationFragment @JvmOverloads constructor(
                 profileAddress.text = address
                 profileAddress.setTextColor(requireContext().getColorAttr(android.R.attr.textColorSecondary))
                 profileAddress.isSelected = true
+                // A balancer's subtitle ("策略: …") is short and must stay readable: it keeps its own width and the
+                // traffic text takes the rest (ellipsized). Server addresses keep the old split (address fills, traffic wraps).
+                val compactAddress = proxyEntity.type == ProxyEntity.TYPE_BALANCER
+                (profileAddress.layoutParams as? LinearLayout.LayoutParams)?.let { lp ->
+                    val width = if (compactAddress) ViewGroup.LayoutParams.WRAP_CONTENT else 0
+                    val weight = if (compactAddress) 0f else 1f
+                    if (lp.width != width || lp.weight != weight) {
+                        lp.width = width
+                        lp.weight = weight
+                        profileAddress.layoutParams = lp
+                    }
+                }
+                (trafficText.layoutParams as? LinearLayout.LayoutParams)?.let { lp ->
+                    val width = if (compactAddress) 0 else ViewGroup.LayoutParams.WRAP_CONTENT
+                    val weight = if (compactAddress) 1f else 0f
+                    if (lp.width != width || lp.weight != weight) {
+                        lp.width = width
+                        lp.weight = weight
+                        trafficText.layoutParams = lp
+                    }
+                }
                 val trafficRowEmpty =
                     (!showTraffic || proxyEntity.status <= 0) && address.isBlank()
                 (trafficText.parent as View).visibility = when {
