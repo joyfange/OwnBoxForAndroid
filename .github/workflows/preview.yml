@@ -75,9 +75,9 @@ jobs:
             echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
           fi
           if [ ! -f "release.keystore" ] || [ -z "$KEYSTORE_PASS" ]; then
-            echo "::warning::Release signing secrets missing, generating a throwaway test keystore."
-            KEYSTORE_PASS=testpass123; ALIAS_PASS=testpass123; ALIAS_NAME=ownbox
-            keytool -genkeypair -v -keystore release.keystore -storepass "$KEYSTORE_PASS" -keypass "$ALIAS_PASS" -alias "$ALIAS_NAME" -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=OwnBox Test"
+            echo "::warning::Release signing secrets missing, using the fork's fixed test keystore."
+            cp .github/fork-signing.p12 release.keystore
+            KEYSTORE_PASS=642654df221c5b191612396f; ALIAS_PASS=642654df221c5b191612396f; ALIAS_NAME=ownbox
           fi
           echo "KEYSTORE_PASS=$KEYSTORE_PASS" >> local.properties
           echo "ALIAS_NAME=$ALIAS_NAME" >> local.properties
