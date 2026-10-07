@@ -123,7 +123,7 @@ class AssetsActivity : ThemedActivity() {
                 alert(getString(R.string.route_not_asset, fileName)).show()
                 return@registerForActivityResult
             }
-            val filesDir = getExternalFilesDir(null) ?: filesDir
+            val filesDir = io.nekohasekai.sagernet.SagerNet.application.externalAssets
 
             runOnDefaultDispatcher {
                 val outFile = File(filesDir, fileName).apply {
@@ -166,7 +166,7 @@ class AssetsActivity : ThemedActivity() {
         }
 
         fun reloadAssets() {
-            val filesDir = getExternalFilesDir(null) ?: filesDir
+            val filesDir = io.nekohasekai.sagernet.SagerNet.application.externalAssets
             val files = filesDir.listFiles()
                 ?.filter { it.isFile && it.name.endsWith(".db") && it.name !in assetNames }
             assets.clear()

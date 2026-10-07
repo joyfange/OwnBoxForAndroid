@@ -7,6 +7,24 @@ import java.io.OutputStream
 
 object Logs {
 
+    /**
+     * 日志会被导出/分享，所以写入前统一打码：订阅链接里的 token、分享链接里的账密/UUID、
+     * 配置 JSON 里的 password/secret/uuid、Authorization 头都替换成 ***。
+     */
+    private val redactions = listOf(
+        Regex("""(?i)([?&](?:token|access_token|key|apikey|api_key|secret|password|passwd|pass|auth|sid|uuid|sub|t)=)[^&#\s"'<>]+""") to "$1***",
+        Regex("""(?i)\b(vmess|ssr)://[A-Za-z0-9+/=_-]{8,}""") to "$1://***",
+        Regex("""\b([a-zA-Z][a-zA-Z0-9+.-]*://)[^/@\s"'<>]+@""") to "$1***@",
+        Regex("""(?i)("(?:secret|password|uuid|private_key|pre_shared_key|psk|auth|auth_str|token|obfs_password|username|user|reserved)"\s*:\s*)("[^"]*"|\[[^\]]*\])""") to "$1\"***\"",
+        Regex("""(?i)(Bearer\s+)[A-Za-z0-9._~+/=-]+""") to "$1***",
+    )
+
+    fun redact(message: String): String {
+        var out = message
+        for ((re, rep) in redactions) out = re.replace(out, rep)
+        return out
+    }
+
     private fun mkTag(): String {
         val stackTrace = Thread.currentThread().stackTrace
         return stackTrace[4].className.substringAfterLast(".")
@@ -23,49 +41,49 @@ object Logs {
 
     fun d(message: String) {
         if (!enabled(3)) return
-        Libcore.nekoLogPrintln("[Debug] [${mkTag()}] $message")
+        Libcore.nekoLogPrintln(redact("[Debug] [${mkTag()}] $message"))
     }
 
     fun d(message: String, exception: Throwable) {
         if (!enabled(3)) return
-        Libcore.nekoLogPrintln("[Debug] [${mkTag()}] $message" + "\n" + exception.stackTraceToString())
+        Libcore.nekoLogPrintln(redact("[Debug] [${mkTag()}] $message" + "\n" + exception.stackTraceToString()))
     }
 
     fun i(message: String) {
         if (!enabled(2)) return
-        Libcore.nekoLogPrintln("[Info] [${mkTag()}] $message")
+        Libcore.nekoLogPrintln(redact("[Info] [${mkTag()}] $message"))
     }
 
     fun i(message: String, exception: Throwable) {
         if (!enabled(2)) return
-        Libcore.nekoLogPrintln("[Info] [${mkTag()}] $message" + "\n" + exception.stackTraceToString())
+        Libcore.nekoLogPrintln(redact("[Info] [${mkTag()}] $message" + "\n" + exception.stackTraceToString()))
     }
 
     fun w(message: String) {
         if (!enabled(1)) return
-        Libcore.nekoLogPrintln("[Warning] [${mkTag()}] $message")
+        Libcore.nekoLogPrintln(redact("[Warning] [${mkTag()}] $message"))
     }
 
     fun w(message: String, exception: Throwable) {
         if (!enabled(1)) return
-        Libcore.nekoLogPrintln("[Warning] [${mkTag()}] $message" + "\n" + exception.stackTraceToString())
+        Libcore.nekoLogPrintln(redact("[Warning] [${mkTag()}] $message" + "\n" + exception.stackTraceToString()))
     }
 
     fun w(exception: Throwable) {
         if (!enabled(1)) return
-        Libcore.nekoLogPrintln("[Warning] [${mkTag()}] " + exception.stackTraceToString())
+        Libcore.nekoLogPrintln(redact("[Warning] [${mkTag()}] " + exception.stackTraceToString()))
     }
 
     fun e(message: String) {
-        Libcore.nekoLogPrintln("[Error] [${mkTag()}] $message")
+        Libcore.nekoLogPrintln(redact("[Error] [${mkTag()}] $message"))
     }
 
     fun e(message: String, exception: Throwable) {
-        Libcore.nekoLogPrintln("[Error] [${mkTag()}] $message" + "\n" + exception.stackTraceToString())
+        Libcore.nekoLogPrintln(redact("[Error] [${mkTag()}] $message" + "\n" + exception.stackTraceToString()))
     }
 
     fun e(exception: Throwable) {
-        Libcore.nekoLogPrintln("[Error] [${mkTag()}] " + exception.stackTraceToString())
+        Libcore.nekoLogPrintln(redact("[Error] [${mkTag()}] " + exception.stackTraceToString()))
     }
 
 }

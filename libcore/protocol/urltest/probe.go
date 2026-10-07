@@ -130,3 +130,14 @@ func probeSingleURL(parentCtx context.Context, detour adapter.Outbound, link str
 	}
 	return uint16(lat), nil
 }
+
+// ProbeOnce 单个地址、一次新连接、一次请求（节点列表手动测速与底栏延迟也用这个，和策略组一致）。
+func ProbeOnce(ctx context.Context, detour adapter.Outbound, link string, timeout time.Duration) (uint16, error) {
+	if detour == nil {
+		return 0, E.New("nil detour")
+	}
+	if link == "" {
+		link = DefaultFallbackURL
+	}
+	return probeSingleURL(ctx, detour, link, timeout)
+}

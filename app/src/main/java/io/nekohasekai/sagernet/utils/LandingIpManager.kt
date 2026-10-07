@@ -62,15 +62,93 @@ object LandingIpManager {
      *  ran, so the bar flashed the "(点击重试)" fallback in the middle of a query. */
     private val activeQueries = java.util.concurrent.atomic.AtomicInteger(0)
 
-    /** Last confirmed exit per node (by profile id). A failed lookup — e.g. one that raced a node switch — shows the
-     *  node's last known exit instead of dropping to the "(点击重试)" fallback. */
-    private const val LAST_GOOD_TTL_MS = 30 * 60_000L
+    /**
+     * Last confirmed exit per node (by profile id), kept across app restarts in app-private prefs. Opening the app
+     * shows the node's last exit at once instead of "正在查询…"; a result younger than [FRESH_MS] is used as is,
+     * an older one stays on screen while a single silent lookup refreshes it.
+     */
+    const val FRESH_MS = 10 * 60_000L
+    private const val LAST_GOOD_TTL_MS = 24 * 60 * 60_000L
+    private const val LAST_GOOD_MAX = 64
     private val lastGood = java.util.concurrent.ConcurrentHashMap<Long, LandingIpInfo>()
 
-    fun getLastKnown(profileId: Long): LandingIpInfo? {
-        val info = lastGood[profileId] ?: return null
-        return if (System.currentTimeMillis() - info.queryTimestamp < LAST_GOOD_TTL_MS) info else null
+    @Volatile
+    private var lastGoodLoaded = false
+
+    private fun prefs() = io.nekohasekai.sagernet.SagerNet.application
+        .getSharedPreferences("landing_ip_cache", android.content.Context.MODE_PRIVATE)
+
+    private fun LandingIpInfo.toJson(): String = JSONObject().apply {
+        put("ip", ip); put("country", country); put("cc", countryCode); put("city", city)
+        put("region", region); put("isp", isp); put("org", org); put("asn", asn)
+        put("ms", durationMs); put("ts", queryTimestamp)
+    }.toString()
+
+    private fun infoFromJson(raw: String): LandingIpInfo? = runCatching {
+        val j = JSONObject(raw)
+        val cc = j.optString("cc")
+        LandingIpInfo(
+            ip = j.getString("ip"),
+            country = j.optString("country"),
+            countryCode = cc,
+            countryFlag = countryCodeToFlagEmoji(cc),
+            city = j.optString("city"),
+            region = j.optString("region"),
+            isp = j.optString("isp"),
+            org = j.optString("org"),
+            asn = j.optString("asn"),
+            durationMs = j.optLong("ms"),
+            queryTimestamp = j.optLong("ts"),
+        ).takeIf { it.ip.isNotBlank() }
+    }.getOrNull()
+
+    private fun ensureLastGoodLoaded() {
+        if (lastGoodLoaded) return
+        synchronized(lastGood) {
+            if (lastGoodLoaded) return
+            runCatching {
+                val now = System.currentTimeMillis()
+                for ((k, v) in prefs().all) {
+                    val id = k.toLongOrNull() ?: continue
+                    val info = infoFromJson(v as? String ?: continue) ?: continue
+                    if (now - info.queryTimestamp < LAST_GOOD_TTL_MS) lastGood.putIfAbsent(id, info)
+                }
+            }
+            lastGoodLoaded = true
+        }
     }
+
+    private fun rememberGood(profileId: Long, info: LandingIpInfo) {
+        ensureLastGoodLoaded()
+        lastGood[profileId] = info
+        runCatching {
+            val editor = prefs().edit()
+            editor.putString(profileId.toString(), info.toJson())
+            if (lastGood.size > LAST_GOOD_MAX) {
+                lastGood.entries.sortedBy { it.value.queryTimestamp }.take(lastGood.size - LAST_GOOD_MAX).forEach {
+                    lastGood.remove(it.key)
+                    editor.remove(it.key.toString())
+                }
+            }
+            editor.apply()
+        }
+    }
+
+    /** The node's last confirmed exit, if younger than [maxAgeMs] (default: 24 h, for display). */
+    fun getLastKnown(profileId: Long, maxAgeMs: Long = LAST_GOOD_TTL_MS): LandingIpInfo? {
+        ensureLastGoodLoaded()
+        val info = lastGood[profileId] ?: return null
+        return if (System.currentTimeMillis() - info.queryTimestamp < maxAgeMs) info else null
+    }
+
+    /** Use a recent remembered result as the current one without a lookup. */
+    fun adopt(profileId: Long, info: LandingIpInfo) {
+        currentCache = info
+        cachedProfileId = profileId
+    }
+
+    /** One lookup per node at a time: a second caller for the same node waits for the running one. */
+    private val inFlight = java.util.concurrent.ConcurrentHashMap<Long, kotlinx.coroutines.Deferred<Result<LandingIpInfo>>>()
 
     /**
      * Bumped by every forced query and by [clearCache]: a slower, older lookup (e.g. one started before the
@@ -85,10 +163,9 @@ object LandingIpManager {
         cachedProfileId = -1L
     }
 
-    /** On disconnect: the exits learned this session may no longer hold next time. */
+    /** On disconnect: drop the session's current result; the per-node history stays for the next start. */
     fun clearAll() {
         clearCache()
-        lastGood.clear()
     }
 
     fun getCachedInfo(): LandingIpInfo? = currentCache
@@ -252,9 +329,8 @@ object LandingIpManager {
 
         val now = System.currentTimeMillis()
         if (forceRefresh) {
+            // keep showing the current result until the new one lands; only older lookups are invalidated
             generation++
-            currentCache = null
-            cachedProfileId = -1L
         } else {
             val cache = currentCache
             if (cache != null && cachedProfileId == profileId && (now - cache.queryTimestamp < CACHE_TTL_MS)) {
@@ -262,16 +338,38 @@ object LandingIpManager {
             }
         }
 
-        if (activeQueries.get() > 0 && !forceRefresh) {
-            currentCache?.let { return@withContext Result.success(it) }
+        if (!forceRefresh) {
+            inFlight[profileId]?.takeIf { it.isActive }?.let { running ->
+                val r = runCatching { running.await() }.getOrElse { Result.failure(it) }
+                if (r.isSuccess) onUpdate?.invoke(r.getOrThrow())
+                return@withContext r
+            }
         }
+        val mine = kotlinx.coroutines.CompletableDeferred<Result<LandingIpInfo>>()
+        inFlight[profileId] = mine
+        try {
+            val result = runLookup(profileId, onUpdate)
+            mine.complete(result)
+            result
+        } catch (e: Throwable) {
+            mine.complete(Result.failure(e))
+            throw e
+        } finally {
+            inFlight.remove(profileId, mine)
+        }
+    }
+
+    private suspend fun runLookup(
+        profileId: Long,
+        onUpdate: ((LandingIpInfo) -> Unit)?,
+    ): Result<LandingIpInfo> = withContext(Dispatchers.IO) {
 
         val myGeneration = generation
         fun publish(info: LandingIpInfo): Boolean {
             if (myGeneration != generation) return false
             currentCache = info
             cachedProfileId = profileId
-            lastGood[profileId] = info
+            rememberGood(profileId, info)
             onUpdate?.invoke(info)
             return true
         }
@@ -293,7 +391,7 @@ object LandingIpManager {
                 val session = java.lang.Long.toHexString(java.util.concurrent.ThreadLocalRandom.current().nextLong())
                 val firstDone = kotlinx.coroutines.CompletableDeferred<Unit>()
                 val firstOk = java.util.concurrent.atomic.AtomicBoolean(false)
-                lookups.launch {
+                val firstJob = lookups.launch {
                     val info = withTimeoutOrNull(4800L) { fetchIpWhoIs(ua, startTime, session) }
                     if (info != null) {
                         firstOk.set(true)
@@ -301,7 +399,7 @@ object LandingIpManager {
                     }
                     firstDone.complete(Unit)
                 }
-                lookups.launch {
+                val secondJob = lookups.launch {
                     withTimeoutOrNull(1500L) { firstDone.await() }
                     // 第一个已成功就不再发第二个
                     if (firstOk.get()) return@launch
@@ -309,6 +407,13 @@ object LandingIpManager {
                         fetchIpSb(ua, startTime, session)
                     }
                     if (info != null) resultChannel.trySend(info)
+                }
+
+                // both sources finished (e.g. both failed fast): stop waiting instead of sitting out the deadline
+                lookups.launch {
+                    firstJob.join()
+                    secondJob.join()
+                    resultChannel.close()
                 }
 
                 var winningInfo: LandingIpInfo? = null

@@ -47,7 +47,26 @@ class SagerNet : Application(),
 
     private val nativeInterface = NativeInterface()
 
-    val externalAssets: File by lazy { getExternalFilesDir(null) ?: filesDir }
+    /**
+     * geoip/geosite 数据库与规则集。以前放在外部存储 Android/data/<pkg>/files，安卓 10 及以下任何有存储权限的
+     * App 都能改写，等于能改你的分流规则；现在改放应用私有目录 files/rules。
+     */
+    val externalAssets: File by lazy { File(filesDir, "rules") }
+
+    /** 一次性迁移：安卓 11+ 的外部应用目录别的 App 写不了，旧文件可以直接搬；10 及以下不搬，内核会从安装包重新解压。 */
+    private fun migrateRuleAssets() {
+        val marker = File(externalAssets, ".migrated")
+        if (marker.exists()) return
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            val old = getExternalFilesDir(null)
+            old?.listFiles()?.forEach { f ->
+                val keep = f.isFile && (f.name.endsWith(".db") || f.name.endsWith(".srs") || f.name.endsWith(".version.txt"))
+                val dst = File(externalAssets, f.name)
+                if (keep && !dst.exists()) runCatching { f.copyTo(dst) }
+            }
+        }
+        runCatching { marker.createNewFile() }
+    }
     val process: String = JavaUtil.getProcessName()
     private val isMainProcess = process == BuildConfig.APPLICATION_ID
     val isBgProcess = process.endsWith(":bg")
@@ -59,6 +78,7 @@ class SagerNet : Application(),
 
         if (isMainProcess || isBgProcess) {
             externalAssets.mkdirs()
+            if (isMainProcess) runCatching { migrateRuleAssets() }
             // 官方内核在 PlatformLogWriter != nil 时会为每个 box 强制创建 CacheFile，
             // 无显式 path 时共用工作目录（no_backup）下的 cache.db。主进程批量测速的
             // 并发 TestInstance 曾共享该文件导致 bbolt freelist 损坏（"page already freed"

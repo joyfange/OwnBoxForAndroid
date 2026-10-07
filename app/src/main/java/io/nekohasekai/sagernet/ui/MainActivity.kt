@@ -812,7 +812,7 @@ class MainActivity : ThemedActivity(),
             ProfileManager.postUpdate(old, true)
             ProfileManager.postUpdate(id, true)
         }
-        binding.stats.refreshLandingIp(forceRefresh = true)
+        // the landing IP follows from Key.PROFILE_ID below; a second forced lookup here doubled every switch
     }
 
     override fun onPreferenceDataStoreChanged(store: PreferenceDataStore, key: String) {
@@ -823,7 +823,7 @@ class MainActivity : ThemedActivity(),
                 Key.PROFILE_ID -> {
                     LandingIpManager.clearCache()
                     if (DataStore.serviceState.connected && DataStore.showLandingIp) {
-                        binding.stats.refreshLandingIp(forceRefresh = true)
+                        binding.stats.onProfileSwitched()
                     }
                 }
                 Key.SHOW_BOTTOM_BAR -> {

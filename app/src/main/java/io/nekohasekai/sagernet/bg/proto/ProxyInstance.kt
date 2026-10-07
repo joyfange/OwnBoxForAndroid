@@ -24,7 +24,8 @@ class ProxyInstance(profile: ProxyEntity, var service: BaseService.Interface? = 
         super.buildConfig()
         lastSelectorGroupId = super.config.selectorGroupId
         //
-        if (notTmp) Logs.d(config.config)
+        // 完整配置含节点密码/UUID/Clash 密钥，只在调试版写日志（写入时也会打码）
+        if (notTmp && BuildConfig.DEBUG) Logs.d(config.config)
         if (notTmp && BuildConfig.DEBUG) Logs.d(JavaUtil.gson.toJson(config.trafficMap))
     }
 

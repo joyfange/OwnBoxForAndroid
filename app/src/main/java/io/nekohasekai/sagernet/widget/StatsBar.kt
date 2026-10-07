@@ -249,10 +249,7 @@ class StatsBar @JvmOverloads constructor(
         (btnIpDetail as? android.widget.ImageView)?.apply {
             animate().rotationBy(360f).setDuration(400).start()
         }
-        if (DataStore.showLandingIp) {
-            statusIpText.setTextIfChanged(context.getString(R.string.landing_ip_querying))
-            statusIpText.visibility = View.VISIBLE
-        }
+        // 已有结果就保持显示，刷新图标转一圈即可，不再闪成「正在查询」
         refreshLandingIp(forceRefresh = true)
         retestLatencyInPlace()
     }
@@ -440,6 +437,64 @@ class StatsBar @JvmOverloads constructor(
         activeLeafOwner = 0L
         leafRefreshJob?.cancel()
         leafRefreshJob = null
+        initialLandingJob?.cancel()
+        initialLandingJob = null
+    }
+
+    /**
+     * Opening the app or connecting: a strategy group reports its real node a moment later, so wait for it (at
+     * most 1.5 s) and look up once, for that node, instead of once for the group and again for the node.
+     */
+    private var initialLandingJob: Job? = null
+
+    private fun scheduleInitialLanding() {
+        initialLandingJob?.cancel()
+        initialLandingJob = null
+        if (!DataStore.showLandingIp || currentState != BaseService.State.Connected) return
+        updateStatusViews()
+        if (activeLeafId > 0L && activeLeafOwner == DataStore.selectedProxy) {
+            ensureLandingIp()
+            return
+        }
+        val scope = (context as? MainActivity)?.lifecycleScope ?: run { ensureLandingIp(); return }
+        initialLandingJob = scope.launch(Dispatchers.Main) {
+            delay(1500L)
+            initialLandingJob = null
+            if (currentState == BaseService.State.Connected) ensureLandingIp()
+        }
+    }
+
+    /** Show what is known for the current node; look up only when nothing recent (10 min) is known. */
+    private fun ensureLandingIp() {
+        if (!DataStore.showLandingIp || currentState != BaseService.State.Connected) return
+        val key = landingKey()
+        val cached = LandingIpManager.getCachedInfo()
+        if (cached != null && LandingIpManager.cachedProfileId == key) {
+            updateStatusViews()
+            return
+        }
+        val fresh = LandingIpManager.getLastKnown(key, LandingIpManager.FRESH_MS)
+        if (fresh != null) {
+            LandingIpManager.adopt(key, fresh)
+            updateStatusViews()
+            return
+        }
+        refreshLandingIp(forceRefresh = false)
+    }
+
+    /** Lookups started from this bar that have not returned yet (set before the IO hop, unlike the manager's count). */
+    private var landingPending = 0
+
+    private fun landingBusy(): Boolean = landingPending > 0 || LandingIpManager.isCurrentlyQuerying() ||
+        landingRetryJob != null || initialLandingJob != null || leafRefreshJob != null
+
+    /** The user picked another profile. */
+    fun onProfileSwitched() {
+        runOnUi {
+            resetActiveLeaf()
+            cancelLandingRetry()
+            scheduleInitialLanding()
+        }
     }
 
     /** Called with every speed update; re-queries the landing IP when the routed node changes. */
@@ -451,7 +506,15 @@ class StatsBar @JvmOverloads constructor(
             activeLeafId = leafId
             activeLeafOwner = selected
             if (currentState != BaseService.State.Connected || !DataStore.showLandingIp) return@runOnUi
+            initialLandingJob?.cancel()
+            initialLandingJob = null
             if (LandingIpManager.cachedProfileId == leafId && LandingIpManager.getCachedInfo() != null) {
+                updateStatusViews()
+                return@runOnUi
+            }
+            val fresh = LandingIpManager.getLastKnown(leafId, LandingIpManager.FRESH_MS)
+            if (fresh != null) {
+                LandingIpManager.adopt(leafId, fresh)
                 updateStatusViews()
                 return@runOnUi
             }
@@ -462,9 +525,11 @@ class StatsBar @JvmOverloads constructor(
                 delay(1200L)
                 leafRefreshJob = null
                 if (currentState == BaseService.State.Connected && landingKey() == leafId) {
-                    refreshLandingIp(forceRefresh = true)
+                    refreshLandingIp(forceRefresh = false)
                 }
             }
+            // last known exit of this node if any, otherwise "正在查询" (the pending job counts as busy)
+            updateStatusViews()
         }
     }
 
@@ -491,16 +556,15 @@ class StatsBar @JvmOverloads constructor(
         runOnUi {
             initViews()
             if (currentState == BaseService.State.Connected) {
+                val key = landingKey()
                 val cached = LandingIpManager.getCachedInfo()
-                val known = if (cached == null) LandingIpManager.getLastKnown(landingKey()) else null
-                if (DataStore.showLandingIp && cached != null && cached.ip.isNotBlank()) {
-                    statusIpText.setTextIfChanged("${cached.countryFlag} ${cached.countryCode} ${cached.ip}")
-                    statusIpText.visibility = View.VISIBLE
-                } else if (DataStore.showLandingIp && known != null) {
+                    ?.takeIf { LandingIpManager.cachedProfileId == key && it.ip.isNotBlank() }
+                val known = cached ?: LandingIpManager.getLastKnown(key)
+                if (DataStore.showLandingIp && known != null) {
                     // lookup failed or still running: show this node's last confirmed exit, not the fallback
                     statusIpText.setTextIfChanged("${known.countryFlag} ${known.countryCode} ${known.ip}")
                     statusIpText.visibility = View.VISIBLE
-                } else if (DataStore.showLandingIp && (LandingIpManager.isCurrentlyQuerying() || landingRetryJob != null)) {
+                } else if (DataStore.showLandingIp && landingBusy()) {
                     statusIpText.setTextIfChanged(context.getString(R.string.landing_ip_querying))
                     statusIpText.visibility = View.VISIBLE
                 } else if (DataStore.showLandingIp) {
@@ -522,7 +586,7 @@ class StatsBar @JvmOverloads constructor(
                         statusText.setTextIfChanged("${latency}ms")
                     } else {
                         statusTitleText.visibility = View.GONE
-                        if (cached == null && DataStore.showLandingIp) {
+                        if (known == null && DataStore.showLandingIp && landingBusy()) {
                             statusText.setTextIfChanged(context.getString(R.string.landing_ip_querying))
                         } else {
                             statusText.setTextIfChanged(app.getString(R.string.vpn_connected))
@@ -550,9 +614,7 @@ class StatsBar @JvmOverloads constructor(
             if (currentState == BaseService.State.Connected) {
                 btnIpDetail?.visibility = if (DataStore.showLandingIp) View.VISIBLE else View.GONE
                 updateStatusViews()
-                if (DataStore.showLandingIp && LandingIpManager.getCachedInfo() == null) {
-                    refreshLandingIp(forceRefresh = false)
-                }
+                if (DataStore.showLandingIp && initialLandingJob == null) ensureLandingIp()
             }
         }
     }
@@ -563,10 +625,7 @@ class StatsBar @JvmOverloads constructor(
             updateHideOnScroll()
             if (state == BaseService.State.Connected) {
                 btnIpDetail?.visibility = if (DataStore.showLandingIp) View.VISIBLE else View.GONE
-                updateStatusViews()
-                if (DataStore.showLandingIp) {
-                    refreshLandingIp(forceRefresh = false)
-                }
+                scheduleInitialLanding()
                 testConnection(silent = true)
             } else {
                 btnIpDetail?.visibility = View.GONE
@@ -631,25 +690,20 @@ class StatsBar @JvmOverloads constructor(
             }
 
             btnIpDetail?.visibility = View.VISIBLE
-            if (forceRefresh || cached == null) {
-                val known = LandingIpManager.getLastKnown(currentProfile)
-                statusIpText.setTextIfChanged(
-                    if (known != null) "${known.countryFlag} ${known.countryCode} ${known.ip}"
-                    else context.getString(R.string.landing_ip_querying)
-                )
-                statusIpText.visibility = View.VISIBLE
-            }
 
             val activity = context as? MainActivity
             val scope = activity?.lifecycleScope ?: CoroutineScope(Dispatchers.Main)
+            landingPending++
+            updateStatusViews()
             scope.launch {
-                val result = LandingIpManager.queryLandingIp(currentProfile, forceRefresh = forceRefresh) { intermediateInfo ->
-                    runOnUi {
-                        if (currentState == BaseService.State.Connected && DataStore.showLandingIp) {
-                            statusIpText.setTextIfChanged("${intermediateInfo.countryFlag} ${intermediateInfo.countryCode} ${intermediateInfo.ip}")
-                            statusIpText.visibility = View.VISIBLE
+                val result = try {
+                    LandingIpManager.queryLandingIp(currentProfile, forceRefresh = forceRefresh) { _ ->
+                        runOnUi {
+                            if (currentState == BaseService.State.Connected && DataStore.showLandingIp) updateStatusViews()
                         }
                     }
+                } finally {
+                    landingPending--
                 }
                 if (currentState != BaseService.State.Connected) return@launch
                 if (!DataStore.showLandingIp) {
