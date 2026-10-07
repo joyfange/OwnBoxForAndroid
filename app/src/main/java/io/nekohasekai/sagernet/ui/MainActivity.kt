@@ -651,6 +651,7 @@ class MainActivity : ThemedActivity(),
         if (reuse) target.view?.let { androidx.core.view.ViewCompat.requestApplyInsets(it) }
         currentMainFragment = target
         syncMainControls(target, showWhenConnected = false, animate = true)
+        updateTrafficSubscription()
         return true
     }
 
@@ -848,8 +849,22 @@ class MainActivity : ThemedActivity(),
     }
 
     override fun onStart() {
-        connection.updateConnectionId(SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_FOREGROUND)
+        connection.updateConnectionId(trafficConnectionId())
         super.onStart()
+    }
+
+    /**
+     * Live speed and per-profile traffic are only drawn on the profile list (its rows and the stats bar). On every
+     * other page the service is told the UI is in the background, so its traffic loop drops from the 1 s
+     * foreground rate to the slow rate instead of waking the CPU every second for numbers nobody sees.
+     */
+    private fun trafficConnectionId(): Int =
+        if ((currentMainFragment ?: visiblePage()) is ConfigurationFragment) SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_FOREGROUND
+        else SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_BACKGROUND
+
+    private fun updateTrafficSubscription() {
+        if (!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) return
+        connection.updateConnectionId(trafficConnectionId())
     }
 
     override fun onStop() {

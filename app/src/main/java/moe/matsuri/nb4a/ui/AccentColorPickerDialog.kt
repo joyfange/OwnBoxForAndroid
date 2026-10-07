@@ -88,10 +88,25 @@ object AccentColorPickerDialog {
             cornerRadius = dp2px(6).toFloat()
         }
 
+        /**
+         * The colour strip is the SeekBar's background, not its progress drawable: the Material SeekBar caps the
+         * progress drawable at a ~2dp max height, so an inset strip used as progress collapsed to nothing and only
+         * the thumb showed. The background always spans the whole view.
+         */
         fun slider(max: Int, trackDrawable: GradientDrawable) = SeekBar(context).apply {
             this.max = max
-            progressDrawable = InsetDrawable(trackDrawable, 0, dp2px(9), 0, dp2px(9))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp2px(36))
+            val side = dp2px(16)
+            setPadding(side, 0, side, 0)
+            background = InsetDrawable(trackDrawable, side - dp2px(4), dp2px(11), side - dp2px(4), dp2px(11))
+            progressDrawable = android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)
+            splitTrack = false
+            thumb = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.WHITE)
+                setStroke(dp2px(2), 0x99000000.toInt())
+                setSize(dp2px(22), dp2px(22))
+            }
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp2px(40))
         }
 
         val hueTrack = track().apply {

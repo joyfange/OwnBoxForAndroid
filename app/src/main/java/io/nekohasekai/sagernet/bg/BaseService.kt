@@ -187,7 +187,12 @@ class BaseService {
             if (!callbackIdMap.containsKey(cb)) {
                 callbacks.register(cb)
             }
-            callbackIdMap[cb] = id
+            val previous = callbackIdMap.put(cb, id)
+            // The UI came (back) to the foreground: refresh speed and traffic now instead of after the slow
+            // background interval (up to 15 s, or 5 min with the screen off) runs out.
+            if (id == SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_FOREGROUND && previous != id) {
+                data?.proxy?.looper?.triggerWakeup()
+            }
         }
 
         private val broadcastMutex = Mutex()
