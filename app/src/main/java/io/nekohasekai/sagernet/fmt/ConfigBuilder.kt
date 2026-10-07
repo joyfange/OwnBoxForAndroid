@@ -926,7 +926,9 @@ fun buildConfig(
                         testUrl = balancerBean.testUrl,
                         intervalSec = iv,
                         toleranceMs = toleranceMs,
-                        idleTimeoutStr = "${iv}s",
+                        // idle_timeout equal to the interval stopped the group's own checks soon after traffic paused,
+                        // so a node that died meanwhile stayed selected. Keep checking for 30 min of idleness.
+                        idleTimeoutStr = "${maxOf(iv, 1800L)}s",
                         interruptExist = false,
                         customTag = balancerTag
                     )

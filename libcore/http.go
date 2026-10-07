@@ -41,6 +41,7 @@ type HTTPClient interface {
 	TryBoxOutbound()
 	TryH3Direct()
 	KeepAlive()
+	SetTimeout(ms int32)
 	NewRequest() HTTPRequest
 	Close()
 }
@@ -163,6 +164,14 @@ func (c *httpClient) TryBoxOutbound() {
 
 func (c *httpClient) TryH3Direct() {
 	c.tryH3Direct = true
+}
+
+// SetTimeout bounds the whole request (dial, TLS, headers and body). Without it a request through a dead
+// node never returns, and the caller (e.g. the landing IP lookup) waits forever.
+func (c *httpClient) SetTimeout(ms int32) {
+	if ms > 0 {
+		c.h1h2Client.Timeout = time.Duration(ms) * time.Millisecond
+	}
 }
 
 func (c *httpClient) KeepAlive() {

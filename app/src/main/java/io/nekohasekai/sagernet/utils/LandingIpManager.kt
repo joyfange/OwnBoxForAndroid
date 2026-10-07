@@ -3,7 +3,10 @@ package io.nekohasekai.sagernet.utils
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.ktx.USER_AGENT
 import io.nekohasekai.sagernet.ktx.tryProxyOutbound
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
@@ -149,6 +152,9 @@ object LandingIpManager {
     private fun createHttpClient(): libcore.HTTPClient {
         return Libcore.newHttpClient().apply {
             modernTLS()
+            // A lookup through a dead node used to block forever (no client timeout), leaving the bar on
+            // "正在查询落地 IP…". Bound every request so it always ends.
+            setTimeout(3000)
             val mixedPort = DataStore.mixedPort
             if (mixedPort > 0) {
                 trySocks5(mixedPort.toInt(), "", "")
@@ -416,31 +422,34 @@ object LandingIpManager {
         try {
             coroutineScope {
                 val resultChannel = Channel<LandingIpInfo>(Channel.UNLIMITED)
+                // The lookups are blocking native calls that coroutine cancellation cannot interrupt. Run them
+                // outside this scope so the answer is published at the deadline instead of after the slowest one.
+                val lookups = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
                 // 并发启动 5 大出网探测源，超时限制严格控制在 2.5s 以内，绝不堵塞主线程
-                launch {
+                lookups.launch {
                     val info = withTimeoutOrNull(1800L) { fetchCloudflare(ua, startTime) }
-                    if (info != null) resultChannel.send(info)
+                    if (info != null) resultChannel.trySend(info)
                 }
 
-                launch {
+                lookups.launch {
                     val info = withTimeoutOrNull(2000L) { fetchIpify(ua, startTime) }
-                    if (info != null) resultChannel.send(info)
+                    if (info != null) resultChannel.trySend(info)
                 }
 
-                launch {
+                lookups.launch {
                     val info = withTimeoutOrNull(2500L) { fetchIpWhoIs(ua, startTime) }
-                    if (info != null) resultChannel.send(info)
+                    if (info != null) resultChannel.trySend(info)
                 }
 
-                launch {
+                lookups.launch {
                     val info = withTimeoutOrNull(2500L) { fetchIpSb(ua, startTime) }
-                    if (info != null) resultChannel.send(info)
+                    if (info != null) resultChannel.trySend(info)
                 }
 
-                launch {
+                lookups.launch {
                     val info = withTimeoutOrNull(2500L) { fetchIpApi(ua, startTime) }
-                    if (info != null) resultChannel.send(info)
+                    if (info != null) resultChannel.trySend(info)
                 }
 
                 var winningInfo: LandingIpInfo? = null
@@ -473,7 +482,8 @@ object LandingIpManager {
                     }
                 }
                 // Stop the remaining lookups: their results are no longer used.
-                coroutineContext.cancelChildren()
+                lookups.cancel()
+                resultChannel.close()
 
                 when {
                     winningInfo == null -> Result.failure(Exception("无法获取落地 IP 信息"))

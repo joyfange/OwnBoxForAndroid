@@ -222,12 +222,11 @@ func (s *URLTest) DialContext(ctx context.Context, network string, destination M
 		return s.group.interruptGroup.NewConn(conn, interrupt.IsExternalConnectionFromContext(ctx)), nil
 	}
 	s.logger.ErrorContext(ctx, err)
+	// 真实流量拨号失败：立刻核实当前节点，失效就切走，而不是等下一轮定时测速
+	go s.group.verifySelectedThrottled("dial failed")
 
-	// 容灾候选快速故障转移，防止主选节点临时抖动导致全量连接直接断连
-	for _, alt := range s.group.outbounds {
-		if alt == detour || !common.Contains(alt.Network(), network) {
-			continue
-		}
+	// 容灾候选快速故障转移：只尝试有有效测速记录的候选（按延迟），避免逐个拨号死节点拖到超时
+	for _, alt := range s.group.liveAlternatives(detour, network, 3) {
 		altConn, altErr := alt.DialContext(ctx, network, destination)
 		if altErr == nil {
 			return s.group.interruptGroup.NewConn(altConn, interrupt.IsExternalConnectionFromContext(ctx)), nil
@@ -250,12 +249,10 @@ func (s *URLTest) ListenPacket(ctx context.Context, destination M.Socksaddr) (ne
 		return s.group.interruptGroup.NewPacketConn(conn, interrupt.IsExternalConnectionFromContext(ctx)), nil
 	}
 	s.logger.ErrorContext(ctx, err)
+	go s.group.verifySelectedThrottled("listen failed")
 
-	// UDP 候选快速容灾
-	for _, alt := range s.group.outbounds {
-		if alt == detour || !common.Contains(alt.Network(), N.NetworkUDP) {
-			continue
-		}
+	// UDP 候选快速容灾（只用有有效测速记录的候选）
+	for _, alt := range s.group.liveAlternatives(detour, N.NetworkUDP, 3) {
 		altConn, altErr := alt.ListenPacket(ctx, destination)
 		if altErr == nil {
 			return s.group.interruptGroup.NewPacketConn(altConn, interrupt.IsExternalConnectionFromContext(ctx)), nil
@@ -297,6 +294,14 @@ type URLTestGroup struct {
 	close                        chan struct{}
 	started                      bool
 	lastActive                   common.TypedValue[time.Time]
+	// 当前节点看门狗（参考 Exclave 的 observatory 思路）：只要分组在用，每 30 秒探测一次正在用的节点，
+	// 真实连接拨号失败时也会立即触发；确认失效后删除它的测速记录、全组重测并切走、断开卡在死节点上的连接。
+	lastUse     atomic.Int64
+	lastVerify  atomic.Int64
+	verifying   atomic.Bool
+	watchStop   chan struct{}
+	watchOnce   sync.Once
+	watchActive atomic.Bool
 }
 
 func NewURLTestGroup(ctx context.Context, outboundManager adapter.OutboundManager, logger log.Logger, outbounds []adapter.Outbound, link string, interval time.Duration, tolerance uint16, idleTimeout time.Duration, interruptExternalConnections bool) (*URLTestGroup, error) {
@@ -327,6 +332,7 @@ func NewURLTestGroup(ctx context.Context, outboundManager adapter.OutboundManage
 		pause:                        service.FromContext[pause.Manager](ctx),
 		interruptGroup:               interrupt.NewGroup(),
 		interruptExternalConnections: interruptExternalConnections,
+		watchStop:                    make(chan struct{}),
 	}, nil
 }
 
@@ -335,13 +341,18 @@ func (g *URLTestGroup) PostStart() {
 	defer g.access.Unlock()
 	g.started = true
 	g.lastActive.Store(time.Now())
+	g.lastUse.Store(time.Now().UnixMilli())
 	go g.CheckOutbounds(g.ctx, false)
+	if g.watchActive.CompareAndSwap(false, true) {
+		go g.watchSelected()
+	}
 }
 
 func (g *URLTestGroup) Touch() {
 	if !g.started {
 		return
 	}
+	g.lastUse.Store(time.Now().UnixMilli())
 	g.access.Lock()
 	defer g.access.Unlock()
 	if g.ticker != nil {
@@ -355,6 +366,7 @@ func (g *URLTestGroup) Touch() {
 }
 
 func (g *URLTestGroup) Close() error {
+	g.watchOnce.Do(func() { close(g.watchStop) })
 	g.access.Lock()
 	defer g.access.Unlock()
 	if g.ticker == nil {
@@ -559,18 +571,10 @@ func (b *urlTestBatch) test(outbounds []adapter.Outbound, link string, interval 
 				}
 				if testResult.err != nil {
 					b.logger.Debug("outbound ", tag, " unavailable: ", testResult.err)
-					oldHist := b.history.LoadURLTestHistory(tag)
-					if oldHist != nil && time.Since(oldHist.Time) < 3*interval {
-						// 节点历史保护：单次超时或网络瞬态抖动不直接抹除历史，增加惩罚延迟保活
-						b.history.StoreURLTestHistory(tag, &adapter.URLTestHistory{
-							Time:  time.Now(),
-							Delay: oldHist.Delay + 300,
-						})
-					} else {
-						b.history.DeleteURLTestHistory(tag)
-					}
+					recordProbeFailure(b.history, tag)
 				} else {
 					b.logger.Debug("outbound ", tag, " available: ", testResult.delay, "ms")
+					recordProbeSuccess(b.history, tag)
 					b.history.StoreURLTestHistory(tag, &adapter.URLTestHistory{
 						Time:  time.Now(),
 						Delay: testResult.delay,
@@ -611,5 +615,170 @@ func (g *URLTestGroup) performUpdateCheck() {
 	}
 	if selected {
 		g.history.NotifyUpdated()
+	}
+}
+
+// ---- 失效节点处理 ----
+//
+// 旧逻辑：测速失败时给记录 +300ms 并把时间戳刷新为“现在”，于是失效节点的记录永远不会过期，
+// 延迟还会一路累加直到 uint16 溢出回绕成一个很小的值——死节点反而变成“最快”，长期被选中。
+// 新逻辑：连续第一次失败只降级（+1000ms、封顶、保留原时间戳，下轮必重测）；连续第二次失败直接删除记录。
+
+type failKey struct {
+	history *urltest.HistoryStorage
+	tag     string
+}
+
+var probeFailures sync.Map // failKey -> *atomic.Int32
+
+func recordProbeSuccess(history *urltest.HistoryStorage, tag string) {
+	probeFailures.Delete(failKey{history, tag})
+}
+
+func recordProbeFailure(history *urltest.HistoryStorage, tag string) {
+	v, _ := probeFailures.LoadOrStore(failKey{history, tag}, new(atomic.Int32))
+	n := v.(*atomic.Int32).Add(1)
+	old := history.LoadURLTestHistory(tag)
+	if n >= 2 || old == nil || old.Delay == 0 {
+		history.DeleteURLTestHistory(tag)
+		return
+	}
+	d := uint32(old.Delay) + 1000
+	if d > 60000 {
+		d = 60000
+	}
+	history.StoreURLTestHistory(tag, &adapter.URLTestHistory{Time: old.Time, Delay: uint16(d)})
+}
+
+func markDead(history *urltest.HistoryStorage, tag string) {
+	v, _ := probeFailures.LoadOrStore(failKey{history, tag}, new(atomic.Int32))
+	v.(*atomic.Int32).Store(2)
+	history.DeleteURLTestHistory(tag)
+}
+
+// liveAlternatives 返回除 exclude 外、有有效测速记录的候选，按延迟从低到高，最多 limit 个。
+func (g *URLTestGroup) liveAlternatives(exclude adapter.Outbound, network string, limit int) []adapter.Outbound {
+	type cand struct {
+		o adapter.Outbound
+		d uint16
+	}
+	var list []cand
+	for _, alt := range g.outbounds {
+		if alt == exclude || !common.Contains(alt.Network(), network) {
+			continue
+		}
+		h := g.history.LoadURLTestHistory(group.RealTag(alt, network))
+		if h == nil || h.Delay == 0 {
+			continue
+		}
+		list = append(list, cand{alt, h.Delay})
+	}
+	for i := 1; i < len(list); i++ {
+		for j := i; j > 0 && list[j].d < list[j-1].d; j-- {
+			list[j], list[j-1] = list[j-1], list[j]
+		}
+	}
+	out := make([]adapter.Outbound, 0, limit)
+	for i := 0; i < len(list) && i < limit; i++ {
+		out = append(out, list[i].o)
+	}
+	return out
+}
+
+const (
+	watchInterval   = 30 * time.Second
+	watchIdleWindow = 2 * time.Minute
+	verifyThrottle  = 10 * time.Second
+)
+
+func (g *URLTestGroup) paused() bool {
+	if g.pause == nil {
+		return false
+	}
+	return g.pause.IsDevicePaused() || g.pause.IsNetworkPaused()
+}
+
+// watchSelected 只在分组最近 2 分钟内有流量时探测当前节点（一次请求），息屏/断网时暂停，几乎不耗电。
+func (g *URLTestGroup) watchSelected() {
+	ticker := time.NewTicker(watchInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-g.watchStop:
+			return
+		case <-g.ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		if g.paused() {
+			continue
+		}
+		if time.Since(time.UnixMilli(g.lastUse.Load())) > watchIdleWindow {
+			continue
+		}
+		g.verifySelected("watchdog")
+	}
+}
+
+func (g *URLTestGroup) verifySelectedThrottled(reason string) {
+	now := time.Now().UnixMilli()
+	last := g.lastVerify.Load()
+	if now-last < verifyThrottle.Milliseconds() || !g.lastVerify.CompareAndSwap(last, now) {
+		return
+	}
+	g.verifySelected(reason)
+}
+
+func (g *URLTestGroup) probeOnce(detour adapter.Outbound) error {
+	ctx, cancel := context.WithTimeout(g.ctx, 5*time.Second)
+	defer cancel()
+	_, err := ProbeOutbound(ctx, detour, g.link, 4*time.Second)
+	return err
+}
+
+// verifySelected 探测正在使用的节点；连续两次失败（中间隔 1 秒，排除瞬时抖动）即判定失效并切换。
+func (g *URLTestGroup) verifySelected(reason string) {
+	if g.paused() || !g.verifying.CompareAndSwap(false, true) {
+		return
+	}
+	defer g.verifying.Store(false)
+	g.lastVerify.Store(time.Now().UnixMilli())
+
+	selected := g.selectedOutboundTCP
+	if selected == nil {
+		return
+	}
+	// 嵌套分组（如 自动 -> 日本）：让内层组先核实并切换自己的节点，外层随后按新记录重新选择
+	if nested, ok := selected.(*URLTest); ok && nested.group != nil {
+		nested.group.verifySelected(reason)
+		g.performUpdateCheck()
+		return
+	}
+	realTag := group.RealTag(selected, N.NetworkTCP)
+	target := selected
+	if o, ok := g.outbound.Outbound(realTag); ok && o != nil {
+		target = o
+	}
+	if g.probeOnce(target) == nil {
+		recordProbeSuccess(g.history, realTag)
+		return
+	}
+	select {
+	case <-g.watchStop:
+		return
+	case <-time.After(time.Second):
+	}
+	if g.probeOnce(target) == nil {
+		recordProbeSuccess(g.history, realTag)
+		return
+	}
+	g.logger.Warn("selected outbound ", realTag, " is unreachable (", reason, "), switching")
+	markDead(g.history, realTag)
+	// 立即全组重测：切到一个“此刻确认可用”的节点，而不是凭旧记录
+	_, _ = g.urlTest(g.ctx, true)
+	g.performUpdateCheck()
+	if g.selectedOutboundTCP != selected {
+		// 卡在死节点上的连接不会自己恢复，主动断开让应用重连到新节点
+		g.interruptGroup.Interrupt(true)
 	}
 }
