@@ -73,8 +73,9 @@ jobs:
             echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
           fi
           if [ ! -f "release.keystore" ] || [ -z "$KEYSTORE_PASS" ]; then
-            echo "::error::Release signing credentials missing. Refusing to build unsigned preview release."
-            exit 1
+            echo "::warning::Release signing secrets missing, generating a throwaway test keystore."
+            KEYSTORE_PASS=testpass123; ALIAS_PASS=testpass123; ALIAS_NAME=ownbox
+            keytool -genkeypair -v -keystore release.keystore -storepass "$KEYSTORE_PASS" -keypass "$ALIAS_PASS" -alias "$ALIAS_NAME" -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=OwnBox Test"
           fi
           echo "KEYSTORE_PASS=$KEYSTORE_PASS" >> local.properties
           echo "ALIAS_NAME=$ALIAS_NAME" >> local.properties
@@ -125,6 +126,7 @@ jobs:
     name: Publish Preview Release
     runs-on: ubuntu-latest
     needs: build
+    if: ${{ github.repository == 'Own716/OwnBoxForAndroid' }}
     permissions:
       contents: write
     steps:
