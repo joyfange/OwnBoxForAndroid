@@ -349,46 +349,59 @@ object ActiveOutboundTracker {
             return false
         }
 
-        // Target tag for this specific strategy group (do not blindly query "proxy")
-        val balancerTag = runCatching { proxy.safeConfig?.profileTagMap?.get(profile.id) }.getOrNull()
-            ?.takeIf { it.isNotBlank() } ?: profile.displayName()
-        var candidateTag = queryClashNowTag(balancerTag)
-        if (candidateTag.isNullOrBlank() && balancerTag != "proxy" && isGroupStrategy) {
-            candidateTag = queryClashNowTag("proxy")
+        val config = proxy.safeConfig
+        val tagMap = runCatching { config?.profileTagMap }.getOrNull().orEmpty()
+        val nestedMembers = runCatching { config?.balancerMemberMap }.getOrNull().orEmpty()
+        // Every node this group can route through, nested groups included (a group of groups, e.g. 自动 -> 日本 ->
+        // 日本 01). The old code stopped at the first level and named the inner group, not the node.
+        val reachable = HashSet<Long>()
+        fun collect(ids: List<Long>, depth: Int) {
+            for (id in ids) if (reachable.add(id) && depth < 6) nestedMembers[id]?.let { collect(it, depth + 1) }
+        }
+        collect(memberMap, 0)
+
+        fun idForTag(tag: String?): Long? {
+            if (tag.isNullOrBlank()) return null
+            return tagMap.entries.firstOrNull { it.value == tag }?.key?.let { abs(it) }?.takeIf { it in reachable }
         }
 
-        var candidateId: Long? = null
-        if (!candidateTag.isNullOrBlank()) {
-            val resolved = runCatching {
-                proxy.safeConfig?.profileTagMap?.entries
-                    ?.firstOrNull { it.value == candidateTag }
-                    ?.key
-                    ?.let { abs(it) }
-            }.getOrNull()
-            // Strict member whitelist check: candidate MUST belong to this strategy group's members!
-            if (resolved != null && resolved in memberMap) {
-                candidateId = resolved
+        val groupTag = runCatching { tagMap[profile.id] }.getOrNull()?.takeIf { it.isNotBlank() && isBalancer }
+            ?: if (isGroupStrategy) "proxy" else profile.displayName()
+
+        // 1. Ask the core directly: it follows every nested group down to the real node, in process, and works
+        //    whether or not the Clash API is enabled. This is the node the traffic actually leaves through.
+        var candidateId: Long? = runCatching { proxy.box.getActiveOutboundTag(groupTag) }.getOrNull()
+            ?.takeIf { it != groupTag }
+            ?.let { idForTag(it) }
+
+        // 2. Clash API, followed down nested groups the same way.
+        if (candidateId == null) {
+            var tag: String? = groupTag
+            var depth = 0
+            while (tag != null && depth < 6) {
+                val next = queryClashNowTag(tag) ?: break
+                if (next == tag) break
+                tag = next
+                depth++
             }
+            if (depth > 0) candidateId = idForTag(tag)
         }
 
-        if (candidateId == null || candidateId <= 0L) {
-            // Check traffic deltas in TrafficLooper
-            val activeItem = proxy.looper?.getActiveTransmittingMember(memberMap)
-            if (activeItem != null && activeItem > 0L && activeItem in memberMap) {
-                candidateId = activeItem
-            }
+        // 3. The member that is moving traffic right now.
+        if (candidateId == null) {
+            candidateId = proxy.looper?.getActiveTransmittingMember(memberMap)?.takeIf { it > 0L }
         }
 
-        if (candidateId == null || candidateId <= 0L) {
-            // If current leaf is already valid for this group, keep it
-            if (activeLeafProfileId in memberMap) {
-                candidateId = activeLeafProfileId
-            } else {
-                candidateId = memberMap.firstOrNull()
-            }
+        // 4. Unknown: keep the last known node, and never guess the first member. Guessing showed a node in the
+        //    notification (and keyed the landing IP to it) that the traffic was not using.
+        if (candidateId == null && activeLeafProfileId !in reachable && activeLeafProfileId != 0L) {
+            reset()
+            lastCheckedProfileId = profile.id
+            lastCheckAt = t
+            return true
         }
 
-        if (candidateId != null && candidateId in memberMap && candidateId != activeLeafProfileId) {
+        if (candidateId != null && candidateId > 0L && candidateId != activeLeafProfileId) {
             val oldId = activeLeafProfileId
             activeLeafProfileId = candidateId
             val ent = runCatching { SagerDatabase.proxyDao.getById(candidateId) }.getOrNull()
