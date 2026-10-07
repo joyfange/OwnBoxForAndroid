@@ -62,6 +62,25 @@ type nodeStats struct {
 	totalDials       atomic.Int64
 	successDials     atomic.Int64
 	latencyEmaMs     atomic.Int64
+	probeFails       atomic.Int32 // consecutive failed health probes (0 = last probe ok / never probed)
+	lastProbe        atomic.Int64 // UnixMilli of the last single-node verification
+}
+
+func (s *nodeStats) recordProbeOK(latencyMs int64) {
+	s.probeFails.Store(0)
+	s.consecutiveFails.Store(0)
+	if latencyMs > 0 {
+		old := s.latencyEmaMs.Load()
+		if old <= 0 {
+			s.latencyEmaMs.Store(latencyMs)
+		} else {
+			s.latencyEmaMs.Store((old*8 + latencyMs*2) / 10)
+		}
+	}
+}
+
+func (s *nodeStats) recordProbeFail() int32 {
+	return s.probeFails.Add(1)
 }
 
 func (s *nodeStats) recordDialSuccess() {
@@ -212,6 +231,8 @@ type LoadBalance struct {
 	access                       sync.Mutex
 	stickyMu                     sync.RWMutex
 	stickySessions               map[string]stickyEntry
+	nodeInterrupt                []*interrupt.Group // per member: lets a dead node's stuck connections be cut
+	lastUsed                     atomic.Int64       // 1 + member index of the last successful dial, 0 = none
 }
 
 func NewLoadBalance(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options LoadBalanceOptions) (adapter.Outbound, error) {
@@ -260,8 +281,14 @@ func (s *LoadBalance) All() []string {
 	return s.tags
 }
 
+// Now reports the member traffic currently goes through. It must not advance round-robin / random state:
+// the UI and the notification poll it every second, which used to rotate the group on every poll.
 func (s *LoadBalance) Now() string {
-	candidates := s.candidateIndices(nil, M.Socksaddr{})
+	now := time.Now().UnixMilli()
+	if idx := int(s.lastUsed.Load()) - 1; idx >= 0 && idx < len(s.tags) && !s.isNodeDegraded(idx, now) {
+		return s.tags[idx]
+	}
+	candidates := s.candidateIndicesPeek(nil, M.Socksaddr{}, true)
 	if len(candidates) > 0 && candidates[0] < len(s.tags) {
 		return s.tags[candidates[0]]
 	}
@@ -296,12 +323,19 @@ func (s *LoadBalance) URLTest(ctx context.Context) (map[string]uint16, error) {
 	defer s.checking.Store(false)
 
 	result := urltestPkg.URLTestOutbounds(ctx, s.outbound, s.history, s.logger, s.outbounds, s.link, s.interval, true)
+	if ctx.Err() != nil {
+		// cancelled (service stopping / screen off): missing results are not failures
+		return result, nil
+	}
 	for i, detour := range s.outbounds {
+		if i >= len(s.stats) || s.stats[i] == nil {
+			continue
+		}
 		tag := detour.Tag()
 		if delay, ok := result[tag]; ok && delay > 0 {
-			if i < len(s.stats) && s.stats[i] != nil {
-				s.stats[i].recordSuccess(int64(delay))
-			}
+			s.stats[i].recordProbeOK(int64(delay))
+		} else if s.stats[i].recordProbeFail() >= 2 {
+			s.cutNode(i, "health check")
 		}
 	}
 	return result, nil
@@ -318,13 +352,14 @@ func (s *LoadBalance) CheckOutbounds() {
 }
 
 func (s *LoadBalance) PerformUpdateCheck() {
-	if s.isLeastPing() {
-		go s.CheckOutbounds()
-	}
+	go s.CheckOutbounds()
 }
 
+// Touch keeps the periodic health check running while the group carries traffic. It used to run for leastPing
+// only, so failover / round robin / random / least load / stable / consistent hash never learned that a member
+// died and kept sending new connections to it (each one waiting out a dial timeout first).
 func (s *LoadBalance) Touch() {
-	if !s.started || !s.isLeastPing() {
+	if !s.started {
 		return
 	}
 	s.access.Lock()
@@ -364,6 +399,9 @@ func (s *LoadBalance) loopCheck(ticker *time.Ticker, closeChan <-chan struct{}) 
 			s.access.Unlock()
 			return
 		}
+		if s.pause != nil && (s.pause.IsDevicePaused() || s.pause.IsNetworkPaused()) {
+			continue
+		}
 		s.CheckOutbounds()
 	}
 }
@@ -384,11 +422,15 @@ func (s *LoadBalance) Start(stage adapter.StartStage, scope *adapter.Scope) erro
 			s.stats[i] = new(nodeStats)
 		}
 		s.ring = newConsistentHashRing(s.tags)
+		s.nodeInterrupt = make([]*interrupt.Group, len(s.tags))
+		for i := range s.nodeInterrupt {
+			s.nodeInterrupt[i] = interrupt.NewGroup()
+		}
 	case adapter.StartStateStarted:
 		s.access.Lock()
 		s.started = true
 		s.lastActive.Store(time.Now())
-		if s.interval > 0 && s.isLeastPing() {
+		if s.interval > 0 {
 			go s.CheckOutbounds()
 		}
 		s.access.Unlock()
@@ -551,16 +593,89 @@ func (s *LoadBalance) setStickySession(key string, nodeIdx int) {
 	}
 }
 
+// isNodeDegraded: a member is moved to the back of every strategy's order when its last health probe failed, or
+// when real dials failed twice in a row. The dial penalty used to expire after a flat 10 s, so a dead primary was
+// retried (and timed out) every 10 s; it now backs off 10 s, 20 s, 40 s ... up to 2 min, and any successful dial
+// or probe clears it at once.
 func (s *LoadBalance) isNodeDegraded(idx int, now int64) bool {
 	if idx < 0 || idx >= len(s.stats) || s.stats[idx] == nil {
 		return false
 	}
-	fails := s.stats[idx].consecutiveFails.Load()
-	lastFail := s.stats[idx].lastFailTime.Load()
-	return fails >= 2 && now-lastFail < 10_000
+	st := s.stats[idx]
+	if st.probeFails.Load() >= 1 {
+		return true
+	}
+	fails := st.consecutiveFails.Load()
+	if fails < 2 {
+		return false
+	}
+	window := int64(10_000) << min(int(fails-2), 4)
+	if window > 120_000 {
+		window = 120_000
+	}
+	return now-st.lastFailTime.Load() < window
+}
+
+// cutNode closes the connections still held on a member confirmed dead; they never recover by themselves.
+func (s *LoadBalance) cutNode(idx int, reason string) {
+	if idx < 0 || idx >= len(s.nodeInterrupt) || s.nodeInterrupt[idx] == nil {
+		return
+	}
+	s.logger.Warn("member ", s.tags[idx], " is unreachable (", reason, "), closing its connections")
+	s.lastUsed.CompareAndSwap(int64(idx+1), 0)
+	s.nodeInterrupt[idx].Interrupt(true)
+}
+
+// verifyNodeAsync re-probes a member right after a real dial on it failed (at most once per 10 s per member),
+// so a dead node is taken out of rotation within seconds instead of waiting for the next periodic check.
+func (s *LoadBalance) verifyNodeAsync(idx int) {
+	if idx < 0 || idx >= len(s.stats) || s.stats[idx] == nil || idx >= len(s.outbounds) {
+		return
+	}
+	st := s.stats[idx]
+	now := time.Now().UnixMilli()
+	last := st.lastProbe.Load()
+	if now-last < 10_000 || !st.lastProbe.CompareAndSwap(last, now) {
+		return
+	}
+	if s.pause != nil && (s.pause.IsDevicePaused() || s.pause.IsNetworkPaused()) {
+		return
+	}
+	go func() {
+		probe := func() (uint16, error) {
+			ctx, cancel := context.WithTimeout(s.ctx, 5*time.Second)
+			defer cancel()
+			return urltestPkg.ProbeOutbound(ctx, s.outbounds[idx], s.link, 4*time.Second)
+		}
+		delay, err := probe()
+		if err != nil {
+			select {
+			case <-s.close:
+				return
+			case <-time.After(time.Second):
+			}
+			delay, err = probe()
+		}
+		if s.ctx.Err() != nil {
+			return
+		}
+		if err == nil {
+			st.recordProbeOK(int64(delay))
+			return
+		}
+		// two failures 1 s apart: confirmed dead
+		st.probeFails.Store(2)
+		s.cutNode(idx, "dial failure")
+	}()
 }
 
 func (s *LoadBalance) candidateIndices(ctx context.Context, dest M.Socksaddr) []int {
+	return s.candidateIndicesPeek(ctx, dest, false)
+}
+
+// candidateIndicesPeek orders the members for a connection. With peek set it reads the order without advancing
+// round-robin / random state (for Now()).
+func (s *LoadBalance) candidateIndicesPeek(ctx context.Context, dest M.Socksaddr, peek bool) []int {
 	n := len(s.outbounds)
 	if n == 0 {
 		n = len(s.tags)
@@ -621,9 +736,7 @@ func (s *LoadBalance) candidateIndices(ctx context.Context, dest M.Socksaddr) []
 			}
 			scores[i] = (successRate * 10) - failPenalty - (latency / 5)
 		}
-		res := make([]int, n)
-		copy(res, indices)
-		slices.SortStableFunc(res, func(a, b int) int {
+		byScore := func(a, b int) int {
 			sa := scores[a]
 			sb := scores[b]
 			if sa > sb {
@@ -632,8 +745,20 @@ func (s *LoadBalance) candidateIndices(ctx context.Context, dest M.Socksaddr) []
 				return 1
 			}
 			return 0
-		})
-		result = res
+		}
+		// A dead member's old success rate could still out-score live ones; keep degraded members last.
+		healthy := make([]int, 0, n)
+		degraded := make([]int, 0, n)
+		for i := 0; i < n; i++ {
+			if s.isNodeDegraded(i, now) {
+				degraded = append(degraded, i)
+			} else {
+				healthy = append(healthy, i)
+			}
+		}
+		slices.SortStableFunc(healthy, byScore)
+		slices.SortStableFunc(degraded, byScore)
+		result = append(healthy, degraded...)
 
 	case "leastPing", "least_ping":
 		healthy := make([]int, 0, n)
@@ -715,7 +840,7 @@ func (s *LoadBalance) candidateIndices(ctx context.Context, dest M.Socksaddr) []
 		}
 		hn := len(healthy)
 		rotated := make([]int, hn)
-		start := int(atomic.AddUint64(&s.counter, 1) % uint64(hn))
+		start := int(s.nextCounter(peek) % uint64(hn))
 		for i := 0; i < hn; i++ {
 			rotated[i] = healthy[(start+i)%hn]
 		}
@@ -752,7 +877,7 @@ func (s *LoadBalance) candidateIndices(ctx context.Context, dest M.Socksaddr) []
 				h = hashDestination(ctx, dest)
 			}
 			if h == 0 {
-				h = uint32(atomic.AddUint64(&s.counter, 1))
+				h = uint32(s.nextCounter(peek))
 			}
 			result = s.ring.getCandidates(h, n, func(idx int) bool {
 				return s.isNodeDegraded(idx, now)
@@ -776,7 +901,10 @@ func (s *LoadBalance) candidateIndices(ctx context.Context, dest M.Socksaddr) []
 			degraded = nil
 		}
 		hn := len(healthy)
-		start := rand.Intn(hn)
+		start := 0
+		if !peek {
+			start = rand.Intn(hn)
+		}
 		rotated := make([]int, hn)
 		for i := 0; i < hn; i++ {
 			rotated[i] = healthy[(start+i)%hn]
@@ -801,7 +929,7 @@ func (s *LoadBalance) candidateIndices(ctx context.Context, dest M.Socksaddr) []
 		}
 		hn := len(healthy)
 		rotated := make([]int, hn)
-		start := int(atomic.AddUint64(&s.counter, 1) % uint64(hn))
+		start := int(s.nextCounter(peek) % uint64(hn))
 		for i := 0; i < hn; i++ {
 			rotated[i] = healthy[(start+i)%hn]
 		}
@@ -825,6 +953,13 @@ func (s *LoadBalance) candidateIndices(ctx context.Context, dest M.Socksaddr) []
 		}
 	}
 	return result
+}
+
+func (s *LoadBalance) nextCounter(peek bool) uint64 {
+	if peek {
+		return atomic.LoadUint64(&s.counter)
+	}
+	return atomic.AddUint64(&s.counter, 1)
 }
 
 type trackedConn struct {
@@ -912,6 +1047,7 @@ func (s *LoadBalance) DialContext(ctx context.Context, network string, destinati
 			if idx < len(s.stats) && s.stats[idx] != nil {
 				s.stats[idx].recordDialSuccess()
 			}
+			s.lastUsed.Store(int64(idx + 1))
 			if s.isStickyEnabled() {
 				destKey := destinationKey(ctx, destination)
 				if destKey != "" {
@@ -930,10 +1066,16 @@ func (s *LoadBalance) DialContext(ctx context.Context, network string, destinati
 					},
 				}
 			}
-			return s.interruptGroup.NewConn(conn, interrupt.IsExternalConnectionFromContext(ctx)), nil
+			external := interrupt.IsExternalConnectionFromContext(ctx)
+			if idx < len(s.nodeInterrupt) && s.nodeInterrupt[idx] != nil {
+				conn = s.nodeInterrupt[idx].NewConn(conn, external)
+			}
+			return s.interruptGroup.NewConn(conn, external), nil
 		}
-		if idx < len(s.stats) && s.stats[idx] != nil {
+		if idx < len(s.stats) && s.stats[idx] != nil && ctx.Err() == nil {
+			// a dial aborted because the caller gave up is not the node's fault
 			s.stats[idx].recordFailure()
+			s.verifyNodeAsync(idx)
 		}
 		lastErr = err
 	}
@@ -1025,6 +1167,7 @@ func (s *LoadBalance) ListenPacket(ctx context.Context, destination M.Socksaddr)
 			if idx < len(s.stats) && s.stats[idx] != nil {
 				s.stats[idx].recordDialSuccess()
 			}
+			s.lastUsed.Store(int64(idx + 1))
 			if s.isStickyEnabled() {
 				destKey := destinationKey(ctx, destination)
 				if destKey != "" {
@@ -1043,10 +1186,16 @@ func (s *LoadBalance) ListenPacket(ctx context.Context, destination M.Socksaddr)
 					},
 				}
 			}
-			return s.interruptGroup.NewPacketConn(conn, interrupt.IsExternalConnectionFromContext(ctx)), nil
+			external := interrupt.IsExternalConnectionFromContext(ctx)
+			if idx < len(s.nodeInterrupt) && s.nodeInterrupt[idx] != nil {
+				conn = s.nodeInterrupt[idx].NewPacketConn(conn, external)
+			}
+			return s.interruptGroup.NewPacketConn(conn, external), nil
 		}
-		if idx < len(s.stats) && s.stats[idx] != nil {
+		if idx < len(s.stats) && s.stats[idx] != nil && ctx.Err() == nil {
+			// a dial aborted because the caller gave up is not the node's fault
 			s.stats[idx].recordFailure()
+			s.verifyNodeAsync(idx)
 		}
 		lastErr = err
 	}

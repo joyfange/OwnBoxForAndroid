@@ -3,6 +3,7 @@ package loadbalance
 import (
 	"context"
 	"net/netip"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -555,5 +556,84 @@ func TestLeastLoadConcurrentAccounting(t *testing.T) {
 	tc.Close()
 	if count.Load() != 0 {
 		t.Fatalf("expected count to remain 0 after multiple closes, got %d", count.Load())
+	}
+}
+
+func newTestLB(strategy string, n int) *LoadBalance {
+	tags := make([]string, n)
+	lb := &LoadBalance{tags: tags, strategy: strategy, stats: make([]*nodeStats, n), activeConns: make([]*atomic.Int64, n)}
+	for i := 0; i < n; i++ {
+		tags[i] = "n" + strconv.Itoa(i)
+		lb.stats[i] = new(nodeStats)
+		lb.activeConns[i] = new(atomic.Int64)
+	}
+	lb.ring = newConsistentHashRing(tags)
+	return lb
+}
+
+func TestNowDoesNotRotate(t *testing.T) {
+	for _, strategy := range []string{"round_robin", "random", "leastLoad", "consistent_hash"} {
+		lb := newTestLB(strategy, 4)
+		before := atomic.LoadUint64(&lb.counter)
+		first := lb.Now()
+		for i := 0; i < 20; i++ {
+			if got := lb.Now(); got != first {
+				t.Fatalf("%s: Now() changed between polls: %s -> %s", strategy, first, got)
+			}
+		}
+		if atomic.LoadUint64(&lb.counter) != before {
+			t.Fatalf("%s: Now() advanced the rotation counter", strategy)
+		}
+		lb.lastUsed.Store(3)
+		if got := lb.Now(); got != "n2" {
+			t.Fatalf("%s: Now() should report the last used member n2, got %s", strategy, got)
+		}
+	}
+}
+
+func TestProbeFailureDegradesEveryStrategy(t *testing.T) {
+	for _, strategy := range []string{"failover", "round_robin", "random", "leastLoad", "stable", "consistent_hash", "leastPing"} {
+		lb := newTestLB(strategy, 3)
+		lb.stats[0].latencyEmaMs.Store(50)
+		lb.stats[1].latencyEmaMs.Store(80)
+		lb.stats[2].latencyEmaMs.Store(90)
+		lb.stats[0].probeFails.Store(1)
+		for i := 0; i < 10; i++ {
+			c := lb.candidateIndices(nil, M.ParseSocksaddr("example.com:443"))
+			if c[0] == 0 {
+				t.Fatalf("%s: probe-failed member chosen first: %v", strategy, c)
+			}
+			if c[len(c)-1] != 0 {
+				t.Fatalf("%s: probe-failed member should be last: %v", strategy, c)
+			}
+		}
+		lb.stats[0].recordProbeOK(40)
+		if lb.isNodeDegraded(0, time.Now().UnixMilli()) {
+			t.Fatalf("%s: successful probe must clear degradation", strategy)
+		}
+	}
+}
+
+func TestDialFailureBackoff(t *testing.T) {
+	lb := newTestLB("failover", 2)
+	now := time.Now().UnixMilli()
+	st := lb.stats[0]
+	st.consecutiveFails.Store(2)
+	st.lastFailTime.Store(now - 11_000)
+	if lb.isNodeDegraded(0, now) {
+		t.Fatal("2 fails: 10 s window should have expired")
+	}
+	st.consecutiveFails.Store(4)
+	if !lb.isNodeDegraded(0, now) {
+		t.Fatal("4 fails: 40 s window should still hold")
+	}
+	st.consecutiveFails.Store(30)
+	st.lastFailTime.Store(now - 119_000)
+	if !lb.isNodeDegraded(0, now) {
+		t.Fatal("window should cap at 2 min, not overflow")
+	}
+	st.lastFailTime.Store(now - 121_000)
+	if lb.isNodeDegraded(0, now) {
+		t.Fatal("window must not exceed 2 min")
 	}
 }

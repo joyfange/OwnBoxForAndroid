@@ -159,7 +159,9 @@ internal fun buildLoadBalanceOutbound(
         val iv = (intervalSec?.takeIf { it > 0 } ?: 300L).coerceAtLeast(10L)
         interval = "${iv}s"
         tolerance = toleranceMs?.takeIf { it >= 0 } ?: 50
-        idle_timeout = idleTimeoutStr?.takeIf { it.isNotBlank() } ?: "${iv}s"
+        // The group's health checks stop after idle_timeout without traffic; at one interval they stopped almost at
+        // once, so a member that died meanwhile was still handed new connections. Keep checking for 30 min.
+        idle_timeout = idleTimeoutStr?.takeIf { it.isNotBlank() } ?: "${maxOf(iv, 1800L)}s"
         interrupt_exist_connections = interruptExist ?: false
     }
 
@@ -950,7 +952,7 @@ fun buildConfig(
                         testUrl = balancerBean.testUrl,
                         intervalSec = iv,
                         toleranceMs = toleranceMs,
-                        idleTimeoutStr = "${iv}s",
+                        idleTimeoutStr = "${maxOf(iv, 1800L)}s",
                         interruptExist = false,
                         customTag = balancerTag
                     )

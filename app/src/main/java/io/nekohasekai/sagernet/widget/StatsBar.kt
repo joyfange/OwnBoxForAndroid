@@ -492,10 +492,15 @@ class StatsBar @JvmOverloads constructor(
             initViews()
             if (currentState == BaseService.State.Connected) {
                 val cached = LandingIpManager.getCachedInfo()
+                val known = if (cached == null) LandingIpManager.getLastKnown(landingKey()) else null
                 if (DataStore.showLandingIp && cached != null && cached.ip.isNotBlank()) {
                     statusIpText.setTextIfChanged("${cached.countryFlag} ${cached.countryCode} ${cached.ip}")
                     statusIpText.visibility = View.VISIBLE
-                } else if (DataStore.showLandingIp && LandingIpManager.isCurrentlyQuerying()) {
+                } else if (DataStore.showLandingIp && known != null) {
+                    // lookup failed or still running: show this node's last confirmed exit, not the fallback
+                    statusIpText.setTextIfChanged("${known.countryFlag} ${known.countryCode} ${known.ip}")
+                    statusIpText.visibility = View.VISIBLE
+                } else if (DataStore.showLandingIp && (LandingIpManager.isCurrentlyQuerying() || landingRetryJob != null)) {
                     statusIpText.setTextIfChanged(context.getString(R.string.landing_ip_querying))
                     statusIpText.visibility = View.VISIBLE
                 } else if (DataStore.showLandingIp) {
@@ -567,15 +572,50 @@ class StatsBar @JvmOverloads constructor(
                 btnIpDetail?.visibility = View.GONE
                 resetLatencyState()
                 resetActiveLeaf()
-                LandingIpManager.clearCache()
+                cancelLandingRetry()
+                LandingIpManager.clearAll()
                 updateSpeed(0, 0)
                 updateStatusViews()
             }
         }
     }
 
-    fun refreshLandingIp(forceRefresh: Boolean = false) {
+    /** Automatic retries after a failed lookup (3 s, 8 s, 20 s) before the bar settles on "(点击重试)". */
+    private var landingRetryJob: Job? = null
+    private var landingRetryKey: Long = 0L
+    private var landingRetryCount: Int = 0
+    private val landingRetryDelays = longArrayOf(3_000L, 8_000L, 20_000L)
+
+    private fun cancelLandingRetry() {
+        landingRetryJob?.cancel()
+        landingRetryJob = null
+        landingRetryCount = 0
+    }
+
+    private fun scheduleLandingRetry(key: Long) {
+        if (landingRetryKey != key) {
+            landingRetryKey = key
+            landingRetryCount = 0
+        }
+        if (landingRetryCount >= landingRetryDelays.size) {
+            landingRetryJob = null
+            return
+        }
+        val wait = landingRetryDelays[landingRetryCount++]
+        val scope = (context as? MainActivity)?.lifecycleScope ?: return
+        landingRetryJob?.cancel()
+        landingRetryJob = scope.launch(Dispatchers.Main) {
+            delay(wait)
+            landingRetryJob = null
+            if (currentState == BaseService.State.Connected && DataStore.showLandingIp && landingKey() == key) {
+                refreshLandingIp(forceRefresh = true, isRetry = true)
+            }
+        }
+    }
+
+    fun refreshLandingIp(forceRefresh: Boolean = false, isRetry: Boolean = false) {
         runOnUi {
+            if (!isRetry) cancelLandingRetry()
             if (currentState != BaseService.State.Connected) return@runOnUi
             if (!DataStore.showLandingIp) {
                 btnIpDetail?.visibility = View.GONE
@@ -592,7 +632,11 @@ class StatsBar @JvmOverloads constructor(
 
             btnIpDetail?.visibility = View.VISIBLE
             if (forceRefresh || cached == null) {
-                statusIpText.setTextIfChanged(context.getString(R.string.landing_ip_querying))
+                val known = LandingIpManager.getLastKnown(currentProfile)
+                statusIpText.setTextIfChanged(
+                    if (known != null) "${known.countryFlag} ${known.countryCode} ${known.ip}"
+                    else context.getString(R.string.landing_ip_querying)
+                )
                 statusIpText.visibility = View.VISIBLE
             }
 
@@ -615,6 +659,7 @@ class StatsBar @JvmOverloads constructor(
                 }
 
                 result.onSuccess { info ->
+                    if (landingKey() == currentProfile) cancelLandingRetry()
                     btnIpDetail?.visibility = View.VISIBLE
                     updateStatusViews()
                     if (lastMeasuredLatency <= 0) {
@@ -622,6 +667,11 @@ class StatsBar @JvmOverloads constructor(
                     }
                 }.onFailure { err ->
                     Logs.w(err)
+                    // A lookup that races a node switch or a cold slow node fails once; retry on its own instead
+                    // of leaving "(点击重试)" until the user taps it.
+                    if (landingKey() == currentProfile && !LandingIpManager.isCurrentlyQuerying()) {
+                        scheduleLandingRetry(currentProfile)
+                    }
                     btnIpDetail?.visibility = View.VISIBLE
                     updateStatusViews()
                 }

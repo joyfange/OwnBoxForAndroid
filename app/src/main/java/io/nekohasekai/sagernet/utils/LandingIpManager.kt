@@ -59,8 +59,19 @@ object LandingIpManager {
     var cachedProfileId: Long = -1L
         private set
 
-    @Volatile
-    private var isQuerying: Boolean = false
+    /** Number of lookups in flight. A boolean was cleared by an older, superseded lookup while a newer one still
+     *  ran, so the bar flashed the "(点击重试)" fallback in the middle of a query. */
+    private val activeQueries = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** Last confirmed exit per node (by profile id). A failed lookup — e.g. one that raced a node switch — shows the
+     *  node's last known exit instead of dropping to the "(点击重试)" fallback. */
+    private const val LAST_GOOD_TTL_MS = 30 * 60_000L
+    private val lastGood = java.util.concurrent.ConcurrentHashMap<Long, LandingIpInfo>()
+
+    fun getLastKnown(profileId: Long): LandingIpInfo? {
+        val info = lastGood[profileId] ?: return null
+        return if (System.currentTimeMillis() - info.queryTimestamp < LAST_GOOD_TTL_MS) info else null
+    }
 
     /**
      * Bumped by every forced query and by [clearCache]: a slower, older lookup (e.g. one started before the
@@ -75,9 +86,15 @@ object LandingIpManager {
         cachedProfileId = -1L
     }
 
+    /** On disconnect: the exits learned this session may no longer hold next time. */
+    fun clearAll() {
+        clearCache()
+        lastGood.clear()
+    }
+
     fun getCachedInfo(): LandingIpInfo? = currentCache
 
-    fun isCurrentlyQuerying(): Boolean = isQuerying
+    fun isCurrentlyQuerying(): Boolean = activeQueries.get() > 0
 
     fun updateCachedDuration(duration: Long) {
         currentCache = currentCache?.copy(durationMs = duration)
@@ -154,7 +171,9 @@ object LandingIpManager {
             modernTLS()
             // A lookup through a dead node used to block forever (no client timeout), leaving the bar on
             // "正在查询落地 IP…". Bound every request so it always ends.
-            setTimeout(3000)
+            // 3 s was too short for a cold connection through a slow node (TCP + node handshake + TLS to the
+            // lookup site); every source timed out and the bar fell back to "(点击重试)".
+            setTimeout(5000)
             val mixedPort = DataStore.mixedPort
             if (mixedPort > 0) {
                 trySocks5(mixedPort.toInt(), "", "")
@@ -401,7 +420,7 @@ object LandingIpManager {
             }
         }
 
-        if (isQuerying && !forceRefresh) {
+        if (activeQueries.get() > 0 && !forceRefresh) {
             currentCache?.let { return@withContext Result.success(it) }
         }
 
@@ -410,11 +429,12 @@ object LandingIpManager {
             if (myGeneration != generation) return false
             currentCache = info
             cachedProfileId = profileId
+            lastGood[profileId] = info
             onUpdate?.invoke(info)
             return true
         }
 
-        isQuerying = true
+        activeQueries.incrementAndGet()
         val startTime = System.currentTimeMillis()
         val ua = USER_AGENT.takeIf { it.isNotBlank() }
             ?: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
@@ -426,34 +446,34 @@ object LandingIpManager {
                 // outside this scope so the answer is published at the deadline instead of after the slowest one.
                 val lookups = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-                // 并发启动 5 大出网探测源，超时限制严格控制在 2.5s 以内，绝不堵塞主线程
+                // 并发启动 5 个出网探测源，任一返回即发布；整体 5.2s 截止，绝不堵塞主线程
                 lookups.launch {
-                    val info = withTimeoutOrNull(1800L) { fetchCloudflare(ua, startTime) }
+                    val info = withTimeoutOrNull(4000L) { fetchCloudflare(ua, startTime) }
                     if (info != null) resultChannel.trySend(info)
                 }
 
                 lookups.launch {
-                    val info = withTimeoutOrNull(2000L) { fetchIpify(ua, startTime) }
+                    val info = withTimeoutOrNull(4500L) { fetchIpify(ua, startTime) }
                     if (info != null) resultChannel.trySend(info)
                 }
 
                 lookups.launch {
-                    val info = withTimeoutOrNull(2500L) { fetchIpWhoIs(ua, startTime) }
+                    val info = withTimeoutOrNull(4800L) { fetchIpWhoIs(ua, startTime) }
                     if (info != null) resultChannel.trySend(info)
                 }
 
                 lookups.launch {
-                    val info = withTimeoutOrNull(2500L) { fetchIpSb(ua, startTime) }
+                    val info = withTimeoutOrNull(4800L) { fetchIpSb(ua, startTime) }
                     if (info != null) resultChannel.trySend(info)
                 }
 
                 lookups.launch {
-                    val info = withTimeoutOrNull(2500L) { fetchIpApi(ua, startTime) }
+                    val info = withTimeoutOrNull(4800L) { fetchIpApi(ua, startTime) }
                     if (info != null) resultChannel.trySend(info)
                 }
 
                 var winningInfo: LandingIpInfo? = null
-                val deadline = System.currentTimeMillis() + 2800L
+                val deadline = System.currentTimeMillis() + 5200L
                 while (System.currentTimeMillis() < deadline) {
                     val remaining = (deadline - System.currentTimeMillis()).coerceAtLeast(1L)
                     val received = withTimeoutOrNull(remaining) { resultChannel.receiveCatching().getOrNull() }
@@ -495,7 +515,7 @@ object LandingIpManager {
         } catch (e: Throwable) {
             Result.failure(e)
         } finally {
-            isQuerying = false
+            activeQueries.decrementAndGet()
         }
     }
 }
