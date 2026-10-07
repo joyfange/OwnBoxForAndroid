@@ -1325,6 +1325,12 @@
     <string name="theme_base_light">浅色</string>
     <string name="theme_base_dark">深色</string>
     <string name="base_custom_title">自定义底色</string>
+    <string name="base_custom_light">自定义浅色</string>
+    <string name="base_custom_dark">自定义深色</string>
+    <string name="base_custom_light_title">自定义浅色底色</string>
+    <string name="base_custom_dark_title">自定义深色底色</string>
+    <string name="color_picker_base_light_note">任选一种颜色，会自动调亮为柔和的浅色背景，卡片、文字和主色随之生成。</string>
+    <string name="color_picker_base_dark_note">任选一种颜色，会自动压暗为深色背景，卡片、文字和主色随之生成。</string>
     <string name="color_picker_base_note">选择背景色，深浅会自动判断，卡片、文字和主色会随之生成。</string>
     <string name="color_picker_base_fallback_note">Android 10 及以下将使用最接近的预设底色。</string>
 </resources>

@@ -57,8 +57,11 @@ object Theme {
     const val SAKURA = 37
     const val LAVENDER = 38
 
-    /** Base theme with a user-picked background colour ([DataStore.baseCustomColor]). */
+    /** Dark base theme with a user-picked background colour ([DataStore.baseCustomColor], kept dark). */
     const val CUSTOM_BASE = 98
+
+    /** Light base theme with a user-picked background colour ([DataStore.baseCustomLightColor], kept light). */
+    const val CUSTOM_BASE_LIGHT = 97
     const val CUSTOM = 99
 
     /** No accent: keep the base theme's own (monochrome) primary colour. */
@@ -153,7 +156,10 @@ object Theme {
     fun baseOf(id: Int): Base? = BASES.firstOrNull { it.id == id }
 
     /** True for every value the theme colour dialog can save as the base ([DataStore.appTheme]). */
-    fun isBaseTheme(id: Int): Boolean = id == CUSTOM_BASE || baseOf(id) != null
+    fun isBaseTheme(id: Int): Boolean = isCustomBase(id) || baseOf(id) != null
+
+    /** Either of the two custom bases (the light one or the dark one). */
+    fun isCustomBase(id: Int): Boolean = id == CUSTOM_BASE || id == CUSTOM_BASE_LIGHT
 
     /** The colours the code paints with (app bar, tabs, stats bar, search field, FAB) for the base on screen. */
     class Palette(
@@ -169,10 +175,51 @@ object Theme {
 
     private fun isDarkColor(@ColorInt color: Int) = ColorUtils.calculateLuminance(color or 0xFF000000.toInt()) < 0.3
 
-    fun isCustomBaseDark(): Boolean = isDarkColor(DataStore.baseCustomColor)
+    /** Keeps a picked colour dark enough for the dark custom base (HSL lightness at most 22%). */
+    @ColorInt
+    fun toDarkBase(@ColorInt color: Int): Int {
+        val hsl = FloatArray(3)
+        ColorUtils.colorToHSL(color or 0xFF000000.toInt(), hsl)
+        if (hsl[2] > 0.22f) hsl[2] = 0.22f
+        val c = ColorUtils.HSLToColor(hsl)
+        return if (isDarkColor(c)) c else ColorUtils.blendARGB(c, Color.BLACK, 0.4f)
+    }
+
+    /** Keeps a picked colour light enough for the light custom base (HSL lightness at least 86%). */
+    @ColorInt
+    fun toLightBase(@ColorInt color: Int): Int {
+        val hsl = FloatArray(3)
+        ColorUtils.colorToHSL(color or 0xFF000000.toInt(), hsl)
+        if (hsl[2] < 0.86f) hsl[2] = 0.86f
+        val c = ColorUtils.HSLToColor(hsl)
+        return if (ColorUtils.calculateLuminance(c) >= 0.55) c else ColorUtils.blendARGB(c, Color.WHITE, 0.5f)
+    }
+
+    /** The background colour of a custom base, already pushed to its own light or dark range. */
+    @ColorInt
+    fun customBaseColor(id: Int): Int = if (id == CUSTOM_BASE_LIGHT) {
+        toLightBase(DataStore.baseCustomLightColor)
+    } else {
+        toDarkBase(DataStore.baseCustomColor)
+    }
+
+    /**
+     * Before the light / dark split there was a single custom base (id 98) whose lightness was read from the colour;
+     * a light colour saved that way moves to the new light custom base so it keeps looking the same.
+     */
+    private fun migrateCustomBase() {
+        if (DataStore.appTheme == CUSTOM_BASE && !isDarkColor(DataStore.baseCustomColor)) {
+            DataStore.baseCustomLightColor = DataStore.baseCustomColor
+            DataStore.baseCustomColor = DEFAULT_CUSTOM_DARK
+            DataStore.appTheme = CUSTOM_BASE_LIGHT
+        }
+    }
+
+    private val DEFAULT_CUSTOM_DARK = 0xFF1B2430.toInt()
 
     private fun isDarkBaseId(id: Int): Boolean = when (id) {
-        CUSTOM_BASE -> isCustomBaseDark()
+        CUSTOM_BASE -> true
+        CUSTOM_BASE_LIGHT -> false
         else -> baseOf(id)?.dark ?: false
     }
 
@@ -189,7 +236,10 @@ object Theme {
     }
 
     /** Selected base, legacy / unknown values mapped to light gray (never writes the store). */
-    fun selectedBaseId(): Int = DataStore.appTheme.let { if (isBaseTheme(it)) it else LIGHT_GRAY }
+    fun selectedBaseId(): Int {
+        migrateCustomBase()
+        return DataStore.appTheme.let { if (isBaseTheme(it)) it else LIGHT_GRAY }
+    }
 
     /**
      * The base actually on screen: night mode keeps a dark base and shows black instead of a light one; the custom
@@ -197,8 +247,8 @@ object Theme {
      */
     fun currentBaseId(context: Context = app): Int {
         var id = selectedBaseId()
-        if (id == CUSTOM_BASE && !OwnBoxColorOverrides.isAvailable()) {
-            id = closestBase(context, DataStore.baseCustomColor).id
+        if (isCustomBase(id) && !OwnBoxColorOverrides.isAvailable()) {
+            id = closestBase(context, customBaseColor(id)).id
         }
         if (usingNightMode(context) && !isDarkBaseId(id)) id = BLACK
         return id
@@ -243,9 +293,9 @@ object Theme {
 
     fun palette(context: Context = app): Palette {
         val id = currentBaseId(context)
-        if (id == CUSTOM_BASE) {
-            val c = customBaseColors(DataStore.baseCustomColor)
-            val dark = isCustomBaseDark()
+        if (isCustomBase(id)) {
+            val c = customBaseColors(customBaseColor(id))
+            val dark = isDarkBaseId(id)
             val primary = c.getValue(R.color.base_custom_primary)
             return Palette(
                 id, dark, c.getValue(R.color.base_custom_bg), c.getValue(R.color.base_custom_card),
@@ -385,14 +435,14 @@ object Theme {
         val baseId = currentBaseId(context)
         // One resources loader for every runtime colour (custom base + custom accent); activities only.
         val overrides = HashMap<Int, Int>()
-        if (baseId == CUSTOM_BASE) overrides.putAll(customBaseColors(DataStore.baseCustomColor))
+        if (isCustomBase(baseId)) overrides.putAll(customBaseColors(customBaseColor(baseId)))
         if (DataStore.accentTheme == CUSTOM) {
             overrides.putAll(customAccentColors(DataStore.accentCustomColor, isDarkBaseId(baseId)))
         }
         val installed = overrides.isNotEmpty() && context is android.app.Activity &&
                 OwnBoxColorOverrides.apply(context, overrides)
-        val effectiveBase = if (baseId == CUSTOM_BASE && !installed) {
-            closestBase(context, DataStore.baseCustomColor).id
+        val effectiveBase = if (isCustomBase(baseId) && !installed) {
+            closestBase(context, customBaseColor(baseId)).id
         } else baseId
         context.setTheme(styleOf(effectiveBase, dialog))
         applyAccent(context, installed)
@@ -404,8 +454,8 @@ object Theme {
 
     @StyleRes
     private fun styleOf(id: Int, dialog: Boolean): Int {
-        if (id == CUSTOM_BASE) {
-            return if (isCustomBaseDark()) {
+        if (isCustomBase(id)) {
+            return if (id == CUSTOM_BASE) {
                 if (dialog) R.style.Theme_SagerNet_Dialog_BaseCustom else R.style.Theme_SagerNet_BaseCustom
             } else {
                 if (dialog) R.style.Theme_SagerNet_Dialog_BaseCustomLight else R.style.Theme_SagerNet_BaseCustomLight

@@ -119,8 +119,11 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var accentTheme by configurationStore.int(Key.ACCENT_THEME) { Theme.ACCENT_NONE }
     /** ARGB of the custom accent ([Theme.CUSTOM]). */
     var accentCustomColor by configurationStore.int(Key.ACCENT_CUSTOM_COLOR) { 0xFF1E88E5.toInt() }
-    /** Background ARGB of the custom base theme ([Theme.CUSTOM_BASE]); light or dark is derived from it. */
+    /** Background ARGB of the dark custom base theme ([Theme.CUSTOM_BASE]). */
     var baseCustomColor by configurationStore.int(Key.BASE_CUSTOM_COLOR) { 0xFF1B2430.toInt() }
+
+    /** Background ARGB of the light custom base theme ([Theme.CUSTOM_BASE_LIGHT]). */
+    var baseCustomLightColor by configurationStore.int(Key.BASE_CUSTOM_LIGHT_COLOR) { 0xFFEEF1F6.toInt() }
     var nightTheme by configurationStore.stringToInt(Key.NIGHT_THEME)
     var appLanguage by configurationStore.string(Key.APP_LANGUAGE) { "" }
     var serviceMode by configurationStore.string(Key.SERVICE_MODE) { Key.MODE_VPN }

@@ -21,7 +21,9 @@ import androidx.annotation.IdRes
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
+import androidx.core.view.GravityCompat
 import androidx.core.view.WindowCompat
+import androidx.drawerlayout.widget.DrawerLayout
 import androidx.preference.PreferenceDataStore
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.navigation.NavigationView
@@ -108,6 +110,7 @@ class MainActivity : ThemedActivity(),
             binding.drawerLayout.removeView(binding.navView)
         }
         navigation.setNavigationItemSelectedListener(this)
+        binding.drawerLayout.addDrawerListener(drawerNavigator)
 
         if (savedInstanceState == null) {
             displayFragmentWithId(R.id.nav_configuration)
@@ -517,12 +520,43 @@ class MainActivity : ThemedActivity(),
         if (controller.isAppearanceLightNavigationBars != light) controller.isAppearanceLightNavigationBars = light
     }
 
+    /** Page picked in the drawer, shown once the drawer has finished closing (see [drawerNavigator]). */
+    @IdRes
+    private var pendingNavigationId = 0
+
+    /**
+     * Swapping the page while the drawer is still sliding shut makes the new page inflate, bind and lay out on the
+     * same frames as the close animation, which is what made the drawer stutter. The swap now waits for the drawer
+     * to be fully closed, so the animation runs alone and the page appears right after it.
+     */
+    private val drawerNavigator = object : DrawerLayout.SimpleDrawerListener() {
+        override fun onDrawerClosed(drawerView: View) {
+            runPendingNavigation()
+        }
+    }
+
+    private fun runPendingNavigation() {
+        val id = pendingNavigationId
+        if (id == 0) return
+        pendingNavigationId = 0
+        if (!isFinishing && !isDestroyed && !isCurrentFragment(id)) displayFragmentWithId(id)
+    }
+
     override fun onNavigationItemSelected(item: MenuItem): Boolean {
-        if (isCurrentFragment(item.itemId)) {
-            binding.drawerLayout.closeDrawers()
+        val id = item.itemId
+        val drawer = binding.drawerLayout
+        if (isCurrentFragment(id)) {
+            pendingNavigationId = 0
+            drawer.closeDrawers()
             return true
         }
-        return displayFragmentWithId(item.itemId)
+        if (id == R.id.nav_faq || !drawer.isDrawerVisible(GravityCompat.START)) {
+            return displayFragmentWithId(id)
+        }
+        pendingNavigationId = id
+        setCheckedItem(id)
+        drawer.closeDrawer(GravityCompat.START)
+        return true
     }
 
 
@@ -530,9 +564,10 @@ class MainActivity : ThemedActivity(),
     fun displayFragment(fragment: ToolbarFragment) {
         currentMainFragment = fragment
         supportFragmentManager.beginTransaction()
+            .setReorderingAllowed(true)
             .replace(R.id.fragment_holder, fragment)
             .commitAllowingStateLoss()
-        binding.drawerLayout.closeDrawers()
+        if (binding.drawerLayout.isDrawerVisible(GravityCompat.START)) binding.drawerLayout.closeDrawers()
         syncMainControls(fragment, showWhenConnected = false, animate = true)
     }
 

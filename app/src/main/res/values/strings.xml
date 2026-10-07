@@ -1415,6 +1415,12 @@
     <string name="theme_base_light">Light</string>
     <string name="theme_base_dark">Dark</string>
     <string name="base_custom_title">Custom background</string>
+    <string name="base_custom_light">Custom light</string>
+    <string name="base_custom_dark">Custom dark</string>
+    <string name="base_custom_light_title">Custom light background</string>
+    <string name="base_custom_dark_title">Custom dark background</string>
+    <string name="color_picker_base_light_note">Pick any colour: it is lightened to a soft background, and the cards, text and primary colour follow it.</string>
+    <string name="color_picker_base_dark_note">Pick any colour: it is deepened to a dark background, and the cards, text and primary colour follow it.</string>
     <string name="color_picker_base_note">Pick a background colour. Light or dark is detected automatically and the cards, text and primary colour follow it.</string>
     <string name="color_picker_base_fallback_note">On Android 10 and below the closest preset background is used.</string>
 </resources>

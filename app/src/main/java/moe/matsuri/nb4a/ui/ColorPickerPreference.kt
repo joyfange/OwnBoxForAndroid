@@ -128,20 +128,36 @@ class ColorPickerPreference @JvmOverloads constructor(
         val nightActive = Theme.usingNightMode(context)
         // What is actually on screen (night mode shows black instead of a light base).
         val currentThemeId = Theme.currentBaseId(context).let {
-            // below Android 11 the custom base is shown as its closest preset; keep the custom tile selected
-            if (Theme.selectedBaseId() == Theme.CUSTOM_BASE && !(nightActive && !Theme.isCustomBaseDark())) Theme.CUSTOM_BASE else it
+            // below Android 11 a custom base is shown as its closest preset; keep its custom tile selected
+            val selected = Theme.selectedBaseId()
+            when {
+                selected == Theme.CUSTOM_BASE -> Theme.CUSTOM_BASE
+                selected == Theme.CUSTOM_BASE_LIGHT && !nightActive -> Theme.CUSTOM_BASE_LIGHT
+                else -> it
+            }
         }
 
         fun applyTheme(themeId: Int, customColor: Int? = null) {
             dialog.dismiss()
-            val colorChanged = customColor != null && customColor != DataStore.baseCustomColor
-            if (customColor != null) DataStore.baseCustomColor = customColor
+            var colorChanged = false
+            if (customColor != null) {
+                // each custom base keeps its own colour, pushed into its light or dark range
+                if (themeId == Theme.CUSTOM_BASE_LIGHT) {
+                    val c = Theme.toLightBase(customColor)
+                    colorChanged = c != Theme.customBaseColor(Theme.CUSTOM_BASE_LIGHT)
+                    DataStore.baseCustomLightColor = c
+                } else {
+                    val c = Theme.toDarkBase(customColor)
+                    colorChanged = c != Theme.customBaseColor(Theme.CUSTOM_BASE)
+                    DataStore.baseCustomColor = c
+                }
+            }
             if (themeId == currentThemeId && !colorChanged) return
             persistInt(themeId)
             DataStore.appTheme = themeId
             // Night mode shows black instead of a light base, so picking a light base turns night mode off;
             // dark bases work with any night mode setting.
-            val pickedDark = if (themeId == Theme.CUSTOM_BASE) Theme.isCustomBaseDark() else Theme.baseOf(themeId)?.dark == true
+            val pickedDark = themeId == Theme.CUSTOM_BASE || Theme.baseOf(themeId)?.dark == true
             if (!pickedDark && Theme.usingNightMode(context)) {
                 DataStore.nightTheme = 2
                 Theme.currentNightMode = 2
@@ -188,12 +204,13 @@ class ColorPickerPreference @JvmOverloads constructor(
                 contentDescription = label
                 setOnClickListener {
                     if (isCustom) {
+                        val light = id == Theme.CUSTOM_BASE_LIGHT
                         AccentColorPickerDialog.show(
-                            context, DataStore.baseCustomColor,
-                            titleRes = R.string.base_custom_title,
-                            noteRes = R.string.color_picker_base_note,
+                            context, Theme.customBaseColor(id),
+                            titleRes = if (light) R.string.base_custom_light_title else R.string.base_custom_dark_title,
+                            noteRes = if (light) R.string.color_picker_base_light_note else R.string.color_picker_base_dark_note,
                             fallbackNoteRes = R.string.color_picker_base_fallback_note,
-                        ) { picked -> applyTheme(Theme.CUSTOM_BASE, picked) }
+                        ) { picked -> applyTheme(id, picked) }
                     } else {
                         applyTheme(id)
                     }
@@ -314,20 +331,24 @@ class ColorPickerPreference @JvmOverloads constructor(
             false,
         )
 
-        val customColors = Theme.customBaseColors(DataStore.baseCustomColor)
-        val customTile = baseTile(
-            Theme.CUSTOM_BASE, context.getString(R.string.base_custom),
-            customColors.getValue(R.color.base_custom_bg),
-            customColors.getValue(R.color.base_custom_card),
-            customColors.getValue(R.color.base_custom_primary),
-            true,
-        )
-        val customIsDark = Theme.isCustomBaseDark()
+        fun customTile(id: Int, label: Int): View {
+            val colors = Theme.customBaseColors(Theme.customBaseColor(id))
+            return baseTile(
+                id, context.getString(label),
+                colors.getValue(R.color.base_custom_bg),
+                colors.getValue(R.color.base_custom_card),
+                colors.getValue(R.color.base_custom_primary),
+                true,
+            )
+        }
 
+        // a custom tile at the end of each group: one keeps a light colour, the other a dark one
         rootLayout.addView(subTitle(R.string.theme_base_light))
-        addTileGrid(Theme.BASES.filter { !it.dark }.map { presetTile(it) } + if (customIsDark) emptyList() else listOf(customTile))
+        addTileGrid(Theme.BASES.filter { !it.dark }.map { presetTile(it) } +
+                customTile(Theme.CUSTOM_BASE_LIGHT, R.string.base_custom_light))
         rootLayout.addView(subTitle(R.string.theme_base_dark))
-        addTileGrid(Theme.BASES.filter { it.dark }.map { presetTile(it) } + if (customIsDark) listOf(customTile) else emptyList())
+        addTileGrid(Theme.BASES.filter { it.dark }.map { presetTile(it) } +
+                customTile(Theme.CUSTOM_BASE, R.string.base_custom_dark))
 
         // 2. Accent colours (independent of the base above)
         rootLayout.addView(sectionTitle(context.getString(R.string.theme_accent_section)).apply {

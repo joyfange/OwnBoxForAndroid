@@ -230,7 +230,7 @@ class StatsBar @JvmOverloads constructor(
             animate().rotationBy(360f).setDuration(400).start()
         }
         if (DataStore.showLandingIp) {
-            statusIpText.text = context.getString(R.string.landing_ip_querying)
+            statusIpText.setTextIfChanged(context.getString(R.string.landing_ip_querying))
             statusIpText.visibility = View.VISIBLE
         }
         refreshLandingIp(forceRefresh = true)
@@ -248,7 +248,7 @@ class StatsBar @JvmOverloads constructor(
 
     private fun setStatus(text: CharSequence) {
         initViews()
-        statusText.text = text
+        statusText.setTextIfChanged(text)
         TooltipCompat.setTooltipText(this, text)
     }
 
@@ -473,13 +473,13 @@ class StatsBar @JvmOverloads constructor(
             if (currentState == BaseService.State.Connected) {
                 val cached = LandingIpManager.getCachedInfo()
                 if (DataStore.showLandingIp && cached != null && cached.ip.isNotBlank()) {
-                    statusIpText.text = "${cached.countryFlag} ${cached.countryCode} ${cached.ip}"
+                    statusIpText.setTextIfChanged("${cached.countryFlag} ${cached.countryCode} ${cached.ip}")
                     statusIpText.visibility = View.VISIBLE
                 } else if (DataStore.showLandingIp && LandingIpManager.isCurrentlyQuerying()) {
-                    statusIpText.text = context.getString(R.string.landing_ip_querying)
+                    statusIpText.setTextIfChanged(context.getString(R.string.landing_ip_querying))
                     statusIpText.visibility = View.VISIBLE
                 } else if (DataStore.showLandingIp) {
-                    statusIpText.text = LandingIpManager.getProfileFallbackDisplay(landingKey())
+                    statusIpText.setTextIfChanged(LandingIpManager.getProfileFallbackDisplay(landingKey()))
                     statusIpText.visibility = View.VISIBLE
                 } else {
                     statusIpText.visibility = View.GONE
@@ -487,20 +487,20 @@ class StatsBar @JvmOverloads constructor(
 
                 if (customStatus != null) {
                     statusTitleText.visibility = View.GONE
-                    statusText.text = customStatus
+                    statusText.setTextIfChanged(customStatus)
                 } else {
                     val isHttps = DataStore.connectionTestURL.startsWith("https://", ignoreCase = true)
                     val handshakeType = if (isHttps) "HTTPS" else "HTTP"
                     if (latency > 0) {
-                        statusTitleText.text = "$handshakeType 握手延迟"
+                        statusTitleText.setTextIfChanged("$handshakeType 握手延迟")
                         statusTitleText.visibility = View.VISIBLE
-                        statusText.text = "${latency}ms"
+                        statusText.setTextIfChanged("${latency}ms")
                     } else {
                         statusTitleText.visibility = View.GONE
                         if (cached == null && DataStore.showLandingIp) {
-                            statusText.text = context.getString(R.string.landing_ip_querying)
+                            statusText.setTextIfChanged(context.getString(R.string.landing_ip_querying))
                         } else {
-                            statusText.text = app.getString(R.string.vpn_connected)
+                            statusText.setTextIfChanged(app.getString(R.string.vpn_connected))
                         }
                     }
                 }
@@ -572,7 +572,7 @@ class StatsBar @JvmOverloads constructor(
 
             btnIpDetail?.visibility = View.VISIBLE
             if (forceRefresh || cached == null) {
-                statusIpText.text = context.getString(R.string.landing_ip_querying)
+                statusIpText.setTextIfChanged(context.getString(R.string.landing_ip_querying))
                 statusIpText.visibility = View.VISIBLE
             }
 
@@ -582,7 +582,7 @@ class StatsBar @JvmOverloads constructor(
                 val result = LandingIpManager.queryLandingIp(currentProfile, forceRefresh = forceRefresh) { intermediateInfo ->
                     runOnUi {
                         if (currentState == BaseService.State.Connected && DataStore.showLandingIp) {
-                            statusIpText.text = "${intermediateInfo.countryFlag} ${intermediateInfo.countryCode} ${intermediateInfo.ip}"
+                            statusIpText.setTextIfChanged("${intermediateInfo.countryFlag} ${intermediateInfo.countryCode} ${intermediateInfo.ip}")
                             statusIpText.visibility = View.VISIBLE
                         }
                     }
@@ -612,16 +612,9 @@ class StatsBar @JvmOverloads constructor(
     @SuppressLint("SetTextI18n")
     fun updateSpeed(txRate: Long, rxRate: Long) {
         runOnUi {
-            txText.text = "▲ ${
-                context.getString(
-                    R.string.speed, Formatter.formatFileSize(context, txRate)
-                )
-            }"
-            rxText.text = "▼ ${
-                context.getString(
-                    R.string.speed, Formatter.formatFileSize(context, rxRate)
-                )
-            }"
+            // Same text as last tick (idle link) -> no relayout of the bar, which otherwise ran every refresh.
+            txText.setTextIfChanged("▲ ${context.getString(R.string.speed, Formatter.formatFileSize(context, txRate))}")
+            rxText.setTextIfChanged("▼ ${context.getString(R.string.speed, Formatter.formatFileSize(context, rxRate))}")
         }
     }
 
@@ -686,4 +679,9 @@ class StatsBar @JvmOverloads constructor(
         }
     }
 
+}
+
+/** TextView.setText always invalidates and, for wrap_content views, re-lays out the parent; skip it for equal text. */
+private fun TextView.setTextIfChanged(value: CharSequence?) {
+    if (!android.text.TextUtils.equals(text, value)) text = value
 }
