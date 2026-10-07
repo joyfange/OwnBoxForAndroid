@@ -76,8 +76,23 @@ func handleProtectConn(conn *net.UnixConn, callback func(fd int)) {
 		log.Println("protect: parse control message failed:", err)
 		return
 	}
-	fds, err := unix.ParseUnixRights(&messages[0])
-	if err != nil || len(fds) == 0 {
+	var fds []int
+	for i := range messages {
+		got, perr := unix.ParseUnixRights(&messages[i])
+		if perr != nil {
+			err = perr
+			continue
+		}
+		fds = append(fds, got...)
+	}
+	// SCM_RIGHTS 收到的是本进程里新 dup 出来的描述符，protect 只需要它指向的底层 socket，
+	// 用完必须关掉；之前从不关闭，批量测速时每个连接泄漏一个 fd，最终触发 EMFILE。
+	defer func() {
+		for _, fd := range fds {
+			_ = unix.Close(fd)
+		}
+	}()
+	if len(fds) == 0 {
 		log.Println("protect: parse unix rights failed:", err)
 		return
 	}

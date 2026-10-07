@@ -179,8 +179,10 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var mixedUsername by configurationStore.string(Key.MIXED_USERNAME) { "" }
     var mixedPassword by configurationStore.string(Key.MIXED_PASSWORD) { "" }
 
+    // 认证与运行模式无关：系统代理模式下开启局域网共享时同样必须校验账密，
+    // 否则同一局域网内任何设备都能免密使用本机节点。
     val mixedInboundNeedsAuth: Boolean
-        get() = serviceMode == Key.MODE_VPN && !mixedInboundDisabled && mixedUsername.isNotBlank()
+        get() = !mixedInboundDisabled && mixedUsername.isNotBlank()
 
     val mixedInboundUser: String get() = if (mixedInboundAuthed) mixedUsername else ""
     val mixedInboundPass: String get() = if (mixedInboundAuthed) mixedPassword else ""

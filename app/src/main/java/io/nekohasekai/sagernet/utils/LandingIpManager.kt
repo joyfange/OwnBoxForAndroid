@@ -2,7 +2,6 @@ package io.nekohasekai.sagernet.utils
 
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.ktx.USER_AGENT
-import io.nekohasekai.sagernet.ktx.tryProxyOutbound
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -33,7 +32,7 @@ data class LandingIpInfo(
 ) {
     val briefText: String
         get() = if (durationMs > 0) {
-            "$countryFlag $countryCode $ip · HTTP 握手 ${durationMs} 毫秒".trim()
+            "$countryFlag $countryCode $ip · 查询耗时 ${durationMs} 毫秒".trim()
         } else {
             "$countryFlag $countryCode $ip".trim()
         }
@@ -116,77 +115,43 @@ object LandingIpManager {
         }.getOrNull() ?: fallbackName
     }
 
-    fun parseProfileRegion(name: String): Pair<String, String> {
-        if (name.isBlank()) return Pair("🌐", "节点出口")
-        // Check if name contains Regional Indicator Symbol flag emoji (e.g. 🇺🇸, 🇭🇰)
-        for (i in 0 until name.length - 1) {
-            val cp1 = name.codePointAt(i)
-            if (cp1 in 0x1F1E6..0x1F1FF) {
-                val charCount1 = Character.charCount(cp1)
-                if (i + charCount1 < name.length) {
-                    val cp2 = name.codePointAt(i + charCount1)
-                    if (cp2 in 0x1F1E6..0x1F1FF) {
-                        val flag = String(Character.toChars(cp1)) + String(Character.toChars(cp2))
-                        val c1 = (cp1 - 0x1F1E6 + 'A'.code).toChar()
-                        val c2 = (cp2 - 0x1F1E6 + 'A'.code).toChar()
-                        val code = "$c1$c2"
-                        return Pair(flag, code)
-                    }
-                }
-            }
-        }
-        val lower = name.lowercase()
-        return when {
-            lower.contains("香港") || lower.contains("hk") || lower.contains("hong kong") -> Pair("🇭🇰", "HK")
-            lower.contains("日本") || lower.contains("jp") || lower.contains("japan") || lower.contains("东京") || lower.contains("大阪") -> Pair("🇯🇵", "JP")
-            lower.contains("美国") || lower.contains("us") || lower.contains("united states") || lower.contains("洛杉矶") || lower.contains("硅谷") -> Pair("🇺🇸", "US")
-            lower.contains("台湾") || lower.contains("tw") || lower.contains("taiwan") || lower.contains("台北") -> Pair("🇹🇼", "TW")
-            lower.contains("新加坡") || lower.contains("sg") || lower.contains("singapore") || lower.contains("狮城") -> Pair("🇸🇬", "SG")
-            lower.contains("韩国") || lower.contains("kr") || lower.contains("korea") || lower.contains("首尔") -> Pair("🇰🇷", "KR")
-            lower.contains("英国") || lower.contains("uk") || lower.contains("gb") || lower.contains("united kingdom") || lower.contains("伦敦") -> Pair("🇬🇧", "GB")
-            lower.contains("德国") || lower.contains("de") || lower.contains("germany") || lower.contains("法兰克福") -> Pair("🇩🇪", "DE")
-            lower.contains("法国") || lower.contains("fr") || lower.contains("france") || lower.contains("巴黎") -> Pair("🇫🇷", "FR")
-            lower.contains("加拿大") || lower.contains("ca") || lower.contains("canada") -> Pair("🇨🇦", "CA")
-            lower.contains("澳大利亚") || lower.contains("au") || lower.contains("australia") || lower.contains("悉尼") -> Pair("🇦🇺", "AU")
-            lower.contains("俄罗斯") || lower.contains("ru") || lower.contains("russia") || lower.contains("莫斯科") -> Pair("🇷🇺", "RU")
-            lower.contains("土耳其") || lower.contains("tr") || lower.contains("turkey") -> Pair("🇹🇷", "TR")
-            lower.contains("阿根廷") || lower.contains("ar") || lower.contains("argentina") -> Pair("🇦🇷", "AR")
-            lower.contains("印度") || lower.contains("in") || lower.contains("india") -> Pair("🇮🇳", "IN")
-            lower.contains("中国") || lower.contains("cn") || lower.contains("china") -> Pair("🇨🇳", "CN")
-            else -> Pair("🌐", "节点出口")
-        }
-    }
+    /**
+     * 查询失败时的占位文字。之前会按节点名“猜”国旗（"us" 能匹配到 Russia、"de" 能匹配到 Sweden 之类），
+     * 经常猜错，现在不再猜，只显示中性的地球图标。
+     */
+    @Suppress("UNUSED_PARAMETER")
+    fun getProfileFallbackDisplay(profileId: Long): String = "🌐 落地 IP 未知 (点击重试)"
 
-    fun getProfileFallbackDisplay(profileId: Long): String {
-        val profile = runCatching {
-            io.nekohasekai.sagernet.database.ProfileManager.getProfile(profileId)
-        }.getOrNull()
-        val name = profile?.displayName().orEmpty()
-        val (flag, region) = parseProfileRegion(name)
-        return "$flag $region (点击重试)"
-    }
+    /** :bg 进程里的落地 IP 专用探测入口（libcore/landing_probe.go），文件位于应用私有目录。 */
+    private data class Probe(val port: Int, val token: String)
 
-    private fun createHttpClient(): libcore.HTTPClient {
+    private fun readProbe(): Probe? = runCatching {
+        val lines = java.io.File(io.nekohasekai.sagernet.SagerNet.application.filesDir, "landing_probe")
+            .readLines().map { it.trim() }.filter { it.isNotEmpty() }
+        val port = lines[0].toInt()
+        val token = lines[1]
+        if (port in 1..65535 && token.length >= 32) Probe(port, token) else null
+    }.getOrNull()
+
+    /**
+     * 每次查询都经 :bg 进程的探测入口、用「当前那个具体节点」直接拨号：
+     * 不走分流规则、不经过策略组（不会推进轮询、不会改变当前节点），探测入口不可用就直接失败，绝不直连。
+     * [session] 让同一次查询的所有查询源固定从同一个节点出去。
+     */
+    private fun createHttpClient(session: String): libcore.HTTPClient {
+        val probe = readProbe() ?: throw IllegalStateException("landing probe unavailable")
         return Libcore.newHttpClient().apply {
             modernTLS()
-            // A lookup through a dead node used to block forever (no client timeout), leaving the bar on
-            // "正在查询落地 IP…". Bound every request so it always ends.
-            // 3 s was too short for a cold connection through a slow node (TCP + node handshake + TLS to the
-            // lookup site); every source timed out and the bar fell back to "(点击重试)".
+            // 冷连接经慢节点：TCP + 节点握手 + 到查询站的 TLS，整体 5 s 封顶
             setTimeout(5000)
-            val mixedPort = DataStore.mixedPort
-            if (mixedPort > 0) {
-                trySocks5(mixedPort.toInt(), "", "")
-            } else {
-                tryProxyOutbound()
-            }
+            trySocks5(probe.port, "${probe.token}:$session", probe.token)
         }
     }
 
-    private fun fetchIpWhoIs(ua: String, startTime: Long): LandingIpInfo? {
+    private fun fetchIpWhoIs(ua: String, startTime: Long, session: String): LandingIpInfo? {
         var client: libcore.HTTPClient? = null
         try {
-            client = createHttpClient()
+            client = createHttpClient(session)
             val req = client.newRequest().apply {
                 setURL("https://ipwho.is/")
                 setUserAgent(ua)
@@ -231,10 +196,10 @@ object LandingIpManager {
         return null
     }
 
-    private fun fetchIpSb(ua: String, startTime: Long): LandingIpInfo? {
+    private fun fetchIpSb(ua: String, startTime: Long, session: String): LandingIpInfo? {
         var client: libcore.HTTPClient? = null
         try {
-            client = createHttpClient()
+            client = createHttpClient(session)
             val req = client.newRequest().apply {
                 setURL("https://api.ip.sb/geoip")
                 setUserAgent(ua)
@@ -266,129 +231,6 @@ object LandingIpManager {
                     isp = isp,
                     org = json.optString("organization"),
                     asn = asn,
-                    durationMs = cost,
-                )
-            }
-        } catch (_: Throwable) {
-        } finally {
-            runCatching { client?.close() }
-        }
-        return null
-    }
-
-    private fun fetchIpApi(ua: String, startTime: Long): LandingIpInfo? {
-        var client: libcore.HTTPClient? = null
-        try {
-            client = createHttpClient()
-            val req = client.newRequest().apply {
-                setURL("http://ip-api.com/json/?fields=status,message,country,countryCode,regionName,city,isp,org,as,query")
-                setUserAgent(ua)
-            }
-            val resp = req.execute()
-            val body = Util.getStringBox(resp.contentString)
-            val json = JSONObject(body)
-            if (json.optString("status") == "success") {
-                val ip = json.optString("query").trim()
-                val countryCode = json.optString("countryCode").uppercase()
-                val rawCountry = json.optString("country")
-                val country = localizeCountry(countryCode, rawCountry)
-                val flag = countryCodeToFlagEmoji(countryCode)
-                val city = json.optString("city")
-                val region = json.optString("regionName")
-                val isp = json.optString("isp")
-                val org = json.optString("org")
-                val asn = json.optString("as")
-                val cost = System.currentTimeMillis() - startTime
-
-                return LandingIpInfo(
-                    ip = ip,
-                    country = country,
-                    countryCode = countryCode,
-                    countryFlag = flag,
-                    city = city,
-                    region = region,
-                    isp = isp,
-                    org = org,
-                    asn = asn,
-                    durationMs = cost,
-                )
-            }
-        } catch (_: Throwable) {
-        } finally {
-            runCatching { client?.close() }
-        }
-        return null
-    }
-
-    private fun fetchCloudflare(ua: String, startTime: Long): LandingIpInfo? {
-        var client: libcore.HTTPClient? = null
-        try {
-            client = createHttpClient()
-            val req = client.newRequest().apply {
-                setURL("https://cloudflare.com/cdn-cgi/trace")
-                setUserAgent(ua)
-            }
-            val resp = req.execute()
-            val body = Util.getStringBox(resp.contentString)
-            var cfIp = ""
-            var cfLoc = ""
-            var cfColo = ""
-            for (line in body.lines()) {
-                val trimmed = line.trim()
-                if (trimmed.startsWith("ip=")) cfIp = trimmed.substring(3).trim()
-                else if (trimmed.startsWith("loc=")) cfLoc = trimmed.substring(4).trim().uppercase()
-                else if (trimmed.startsWith("colo=")) cfColo = trimmed.substring(5).trim().uppercase()
-            }
-            if (cfIp.isNotBlank() && cfLoc.isNotBlank()) {
-                val countryCode = cfLoc
-                val flag = countryCodeToFlagEmoji(countryCode)
-                val country = localizeCountry(countryCode, countryCode)
-                val cost = System.currentTimeMillis() - startTime
-
-                return LandingIpInfo(
-                    ip = cfIp,
-                    country = country,
-                    countryCode = countryCode,
-                    countryFlag = flag,
-                    city = if (cfColo.isNotBlank()) "Cloudflare ($cfColo)" else "",
-                    region = "",
-                    isp = "Cloudflare Edge",
-                    org = "Cloudflare Anycast",
-                    asn = if (cfColo.isNotBlank()) "Cloudflare $cfColo" else "Cloudflare",
-                    durationMs = cost,
-                )
-            }
-        } catch (_: Throwable) {
-        } finally {
-            runCatching { client?.close() }
-        }
-        return null
-    }
-
-    private fun fetchIpify(ua: String, startTime: Long): LandingIpInfo? {
-        var client: libcore.HTTPClient? = null
-        try {
-            client = createHttpClient()
-            val req = client.newRequest().apply {
-                setURL("https://api.ipify.org?format=json")
-                setUserAgent(ua)
-            }
-            val resp = req.execute()
-            val body = Util.getStringBox(resp.contentString)
-            val json = JSONObject(body)
-            val ip = json.optString("ip").trim()
-            if (ip.isNotBlank()) {
-                val cost = System.currentTimeMillis() - startTime
-                return LandingIpInfo(
-                    ip = ip,
-                    country = "",
-                    countryCode = "",
-                    countryFlag = "🌐",
-                    city = "",
-                    region = "",
-                    isp = "",
-                    org = "",
-                    asn = "",
                     durationMs = cost,
                 )
             }
@@ -446,29 +288,26 @@ object LandingIpManager {
                 // outside this scope so the answer is published at the deadline instead of after the slowest one.
                 val lookups = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-                // 并发启动 5 个出网探测源，任一返回即发布；整体 5.2s 截止，绝不堵塞主线程
+                // 查询源分级启动：先只用一个（带归属地/运营商的 ipwho.is）；约 1.5 s 没结果（或它已失败）再加第二个。
+                // 之前 5 个源同时打，轮询/随机策略下各走各的节点，IP 和节点对不上，也白白多开连接。
+                val session = java.lang.Long.toHexString(java.util.concurrent.ThreadLocalRandom.current().nextLong())
+                val firstDone = kotlinx.coroutines.CompletableDeferred<Unit>()
+                val firstOk = java.util.concurrent.atomic.AtomicBoolean(false)
                 lookups.launch {
-                    val info = withTimeoutOrNull(4000L) { fetchCloudflare(ua, startTime) }
-                    if (info != null) resultChannel.trySend(info)
+                    val info = withTimeoutOrNull(4800L) { fetchIpWhoIs(ua, startTime, session) }
+                    if (info != null) {
+                        firstOk.set(true)
+                        resultChannel.trySend(info)
+                    }
+                    firstDone.complete(Unit)
                 }
-
                 lookups.launch {
-                    val info = withTimeoutOrNull(4500L) { fetchIpify(ua, startTime) }
-                    if (info != null) resultChannel.trySend(info)
-                }
-
-                lookups.launch {
-                    val info = withTimeoutOrNull(4800L) { fetchIpWhoIs(ua, startTime) }
-                    if (info != null) resultChannel.trySend(info)
-                }
-
-                lookups.launch {
-                    val info = withTimeoutOrNull(4800L) { fetchIpSb(ua, startTime) }
-                    if (info != null) resultChannel.trySend(info)
-                }
-
-                lookups.launch {
-                    val info = withTimeoutOrNull(4800L) { fetchIpApi(ua, startTime) }
+                    withTimeoutOrNull(1500L) { firstDone.await() }
+                    // 第一个已成功就不再发第二个
+                    if (firstOk.get()) return@launch
+                    val info = withTimeoutOrNull(4800L - (System.currentTimeMillis() - startTime).coerceAtLeast(0L)) {
+                        fetchIpSb(ua, startTime, session)
+                    }
                     if (info != null) resultChannel.trySend(info)
                 }
 

@@ -87,10 +87,14 @@ func InitCore(process, cachePath, internalAssets, externalAssets string,
 		defer device.DeferPanicToError("InitCore-go", func(err error) { log.Println(err) })
 		device.GoDebug(process)
 
-		// certs
-		pem, err := os.ReadFile(externalAssetsPath + "ca.pem")
-		if err == nil {
+		// certs：自定义根证书只从应用私有目录（filesDir）读取。
+		// 之前读的是外部存储 Android/data/<pkg>/files/ca.pem —— 安卓 10 及以下任何持有存储权限的 App
+		// 都能替换它，让内核把攻击者自己的 CA 当成系统根证书（可对 TLS 节点/订阅/规则集做中间人）。
+		// 外部目录里残留的 ca.pem 不再被信任，也不会被自动导入；需要自定义 CA 的用户请在应用内导入到私有目录。
+		if pem, err := os.ReadFile(filepath.Join(internalAssetsPath, "ca.pem")); err == nil {
 			updateRootCACerts(pem)
+		} else if _, statErr := os.Stat(filepath.Join(externalAssetsPath, "ca.pem")); statErr == nil {
+			log.Println("ignoring ca.pem in external storage: custom CA must be placed in the app-private files dir")
 		}
 
 		// bg

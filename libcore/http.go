@@ -119,25 +119,19 @@ func (c *httpClient) PinnedSHA256(sumHex string) {
 
 func (c *httpClient) TrySocks5(port int32, username string, password string) {
 	dialer := new(net.Dialer)
+	// 只经 SOCKS5 出去；连不上或握手失败就返回错误。
+	// 之前失败时会悄悄 dialer.DialContext 直连目标 —— 落地 IP 查询因此可能显示用户的真实 IP。
 	c.h1h2Transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-		for {
-			socksConn, err := dialer.DialContext(ctx, "tcp", "127.0.0.1:"+strconv.Itoa(int(port)))
-			if err != nil {
-				if c.tryH3Direct {
-					return nil, errFailConnectSocks5
-				}
-				break
-			}
-			_, err = socks.ClientHandshake5(socksConn, socks5.CommandConnect, metadata.ParseSocksaddr(addr), username, password)
-			if err != nil {
-				if c.tryH3Direct {
-					return nil, errFailConnectSocks5
-				}
-				break
-			}
-			return socksConn, err
+		socksConn, err := dialer.DialContext(ctx, "tcp", "127.0.0.1:"+strconv.Itoa(int(port)))
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", errFailConnectSocks5, err)
 		}
-		return dialer.DialContext(ctx, network, addr)
+		_, err = socks.ClientHandshake5(socksConn, socks5.CommandConnect, metadata.ParseSocksaddr(addr), username, password)
+		if err != nil {
+			socksConn.Close()
+			return nil, fmt.Errorf("%w: %v", errFailConnectSocks5, err)
+		}
+		return socksConn, nil
 	}
 	c.trySocks5 = true
 }

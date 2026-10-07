@@ -90,6 +90,7 @@ func (p *platformLocalDNSTransport) Exchange(ctx context.Context, message *mDNS.
 		done := make(chan struct{})
 		response := &ExchangeContext{
 			context: ctx,
+			network: network,
 			done: sync.OnceFunc(func() {
 				close(done)
 			}),
@@ -137,6 +138,7 @@ type ExchangeContext struct {
 	message   mDNS.Msg
 	addresses []netip.Addr
 	error     error
+	network   string
 	done      func()
 }
 
@@ -148,11 +150,22 @@ func (c *ExchangeContext) OnCancel(callback Func) {
 }
 
 func (c *ExchangeContext) Success(result string) {
-	c.addresses = common.Map(common.Filter(strings.Split(result, "\n"), func(it string) bool {
+	addrs := common.Map(common.Filter(strings.Split(result, "\n"), func(it string) bool {
 		return !common.IsEmpty(it)
 	}), func(it string) netip.Addr {
 		return M.ParseSocksaddrHostPort(it, 0).Unwrap().Addr
 	})
+	// 系统解析（InetAddress.getAllByName）会同时返回 v4/v6，按问题类型过滤，避免 A 查询里混入 AAAA
+	switch c.network {
+	case "ip4":
+		addrs = common.Filter(addrs, func(it netip.Addr) bool { return it.IsValid() && it.Unmap().Is4() })
+	case "ip6":
+		addrs = common.Filter(addrs, func(it netip.Addr) bool { return it.IsValid() && it.Is6() && !it.Is4In6() })
+	}
+	c.addresses = addrs
+	// 之前这里缺少 c.done()：安卓 9 及以下走 Lookup 路径时，成功结果永远不通知完成，
+	// 每次查询都要等到上下文超时才返回。
+	c.done()
 }
 
 func (c *ExchangeContext) RawSuccess(result []byte) {

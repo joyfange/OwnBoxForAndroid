@@ -394,12 +394,22 @@
         <activity
             android:name="io.nekohasekai.sagernet.ui.AppListActivity"
             android:configChanges="uiMode" />
+        <!-- 真正执行开关/切换节点的 Activity 一律不导出：静态/固定快捷方式由系统以本应用身份启动 -->
         <activity
             android:name=".QuickToggleShortcut"
             android:excludeFromRecents="true"
-            android:exported="true"
+            android:exported="false"
             android:label="@string/quick_toggle"
             android:launchMode="singleTask"
+            android:process=":bg"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <!-- 只响应 CREATE_SHORTCUT，返回快捷方式描述，不执行任何操作 -->
+        <activity
+            android:name=".QuickToggleShortcutCreator"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:label="@string/quick_toggle"
             android:process=":bg"
             android:taskAffinity=""
             android:theme="@android:style/Theme.Translucent.NoTitleBar">
@@ -407,10 +417,18 @@
                 <action android:name="android.intent.action.CREATE_SHORTCUT" />
             </intent-filter>
         </activity>
+        <!-- 仅供 Android 7.1 及以下老式桌面快捷方式：必须携带本机随机令牌才转发 -->
+        <activity
+            android:name=".ShortcutTrampoline"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:process=":bg"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <activity
             android:name="io.nekohasekai.sagernet.ui.QuickEnableShortcut"
             android:excludeFromRecents="true"
-            android:exported="true"
+            android:exported="false"
             android:label="@string/quick_enable"
             android:launchMode="singleTask"
             android:process=":bg"
@@ -419,7 +437,7 @@
         <activity
             android:name="io.nekohasekai.sagernet.ui.QuickDisableShortcut"
             android:excludeFromRecents="true"
-            android:exported="true"
+            android:exported="false"
             android:label="@string/quick_disable"
             android:launchMode="singleTask"
             android:process=":bg"
@@ -535,6 +553,11 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+
+        <!-- 小部件按钮的开关广播改由不导出的接收器处理：PendingIntent 以本应用身份发送，外部 App 发不进来 -->
+        <receiver
+            android:name="io.nekohasekai.sagernet.widget.WidgetActionReceiver"
+            android:exported="false" />
 
         <receiver
             android:name="io.nekohasekai.sagernet.widget.OwnBoxWidgetProvider"

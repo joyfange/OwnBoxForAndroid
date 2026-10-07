@@ -15,14 +15,6 @@ class OwnBoxWidgetProvider : AppWidgetProvider() {
         }
     }
 
-    override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == ACTION_TOGGLE) {
-            OwnBoxWidgetHelper.handleToggle(context)
-            return
-        }
-        super.onReceive(context, intent)
-    }
-
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         OwnBoxWidgetHelper.updateAllWidgets(context)
     }

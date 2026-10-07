@@ -26,6 +26,7 @@ import (
 	"github.com/sagernet/sing-box/protocol/group"
 
 	box "github.com/sagernet/sing-box"
+	"github.com/sagernet/sing-box/common/urltest"
 	"github.com/sagernet/sing-box/constant"
 	sblog "github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
@@ -128,6 +129,10 @@ type BoxInstance struct {
 	diagnosticID  uint64
 	diagnosticTag string
 	isURLTest     bool
+
+	// 主实例的测速记录（持久化见 urltest_persist.go）
+	urlTestHistory   *urltest.HistoryStorage
+	lastSavedHistory string
 }
 
 func (b *BoxInstance) urlTestTrace(stage string, format string, args ...any) {
@@ -236,6 +241,12 @@ func newSingBoxInstance(config string, localTransport LocalDNSTransport, platfor
 			setPlatformLogLevel(sblog.LevelTrace)
 		}
 	}
+	var historyStorage *urltest.HistoryStorage
+	if platformLog {
+		// 启动即载入上次测速结果（Exclave 同款），策略组不必等首轮测完才知道该用哪个节点
+		historyStorage = newPersistentHistoryStorage()
+		ctx = service.ContextWithPtr(ctx, historyStorage)
+	}
 	instance, err := box.New(box.Options{
 		Options:           options,
 		Context:           ctx,
@@ -255,15 +266,16 @@ func newSingBoxInstance(config string, localTransport LocalDNSTransport, platfor
 	platformWrapper.diagnosticTag = diagnosticTag
 
 	b = &BoxInstance{
-		Box:           instance,
-		ctx:           ctx,
-		cancel:        cancel,
-		startBox:      instance.Start,
-		closeBox:      instance.Close,
-		pauseManager:  service.FromContext[pause.Manager](ctx),
-		diagnosticID:  diagnosticID,
-		diagnosticTag: diagnosticTag,
-		isURLTest:     !platformLog,
+		Box:            instance,
+		ctx:            ctx,
+		cancel:         cancel,
+		startBox:       instance.Start,
+		closeBox:       instance.Close,
+		pauseManager:   service.FromContext[pause.Manager](ctx),
+		diagnosticID:   diagnosticID,
+		diagnosticTag:  diagnosticTag,
+		isURLTest:      !platformLog,
+		urlTestHistory: historyStorage,
 	}
 	b.urlTestTrace("create-box", "ok elapsed=%s", time.Since(createStarted))
 
@@ -352,6 +364,8 @@ func (b *BoxInstance) Close() (err error) {
 	if mainInstance == b {
 		mainInstance = nil
 		goServeProtect(false)
+		goServeLandingProbe(false)
+		b.saveURLTestHistory()
 	}
 
 	// close box
@@ -392,6 +406,8 @@ func (b *BoxInstance) Wake() {
 func (b *BoxInstance) SetAsMain() {
 	mainInstance = b
 	goServeProtect(true)
+	goServeLandingProbe(true)
+	b.startURLTestHistorySaver()
 }
 
 func (b *BoxInstance) SetV2rayStats(outbounds string) {

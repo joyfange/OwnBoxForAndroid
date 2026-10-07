@@ -1007,79 +1007,83 @@ func (s *LoadBalance) DialContext(ctx context.Context, network string, destinati
 	if n == 0 {
 		return nil, E.New("no outbounds available")
 	}
-	var lastErr error
-	for i, idx := range indices {
-		candidate := s.outbounds[idx]
-		var (
-			conn net.Conn
-			err  error
-		)
+	// Happy Eyeballs 式错峰拨号：之前是一个个排队等（每个 2～4.5 秒，最后一个最长 15 秒）。
+	// 现在第一个约 0.5 秒还没连上就同时试下一个，谁先连上用谁；某个直接失败则立刻试下一个。
+	// 单个候选仍保留原来的超时上限（最后一个候选只受调用方 ctx 约束）。
+	conn, winner, err := urltestPkg.RaceDial(ctx, n, urltestPkg.DefaultDialStagger, func(dialCtx context.Context, i int) (net.Conn, error) {
+		idx := indices[i]
 		if i < n-1 {
-			timeout := 3500 * time.Millisecond
-			if s.isLeastPing() {
-				timeout = 2500 * time.Millisecond
-				if idx < len(s.stats) && s.stats[idx] != nil {
-					ema := s.stats[idx].latencyEmaMs.Load()
-					if ema > 0 {
-						dynamic := time.Duration(ema*3) * time.Millisecond
-						if dynamic < 2000*time.Millisecond {
-							timeout = 2000 * time.Millisecond
-						} else if dynamic > 4500*time.Millisecond {
-							timeout = 4500 * time.Millisecond
-						} else {
-							timeout = dynamic
-						}
-					}
-					if s.stats[idx].consecutiveFails.Load() > 0 {
-						if timeout > 2000*time.Millisecond {
-							timeout = 2000 * time.Millisecond
-						}
-					}
-				}
-			}
-			candidateCtx, cancel := context.WithTimeout(ctx, timeout)
-			conn, err = candidate.DialContext(candidateCtx, network, destination)
-			cancel()
-		} else {
-			conn, err = candidate.DialContext(ctx, network, destination)
+			candidateCtx, cancel := context.WithTimeout(dialCtx, s.candidateTimeout(idx))
+			defer cancel()
+			return s.outbounds[idx].DialContext(candidateCtx, network, destination)
 		}
-		if err == nil {
-			if idx < len(s.stats) && s.stats[idx] != nil {
-				s.stats[idx].recordDialSuccess()
-			}
-			s.lastUsed.Store(int64(idx + 1))
-			if s.isStickyEnabled() {
-				destKey := destinationKey(ctx, destination)
-				if destKey != "" {
-					s.setStickySession(destKey, idx)
-				}
-			}
-			if (s.strategy == "leastLoad" || s.strategy == "least_load") && idx < len(s.activeConns) && s.activeConns[idx] != nil {
-				s.activeConns[idx].Add(1)
-				conn = &trackedConn{
-					Conn: conn,
-					onClose: func() {
-						val := s.activeConns[idx].Add(-1)
-						if val < 0 {
-							s.activeConns[idx].Store(0)
-						}
-					},
-				}
-			}
-			external := interrupt.IsExternalConnectionFromContext(ctx)
-			if idx < len(s.nodeInterrupt) && s.nodeInterrupt[idx] != nil {
-				conn = s.nodeInterrupt[idx].NewConn(conn, external)
-			}
-			return s.interruptGroup.NewConn(conn, external), nil
-		}
+		return s.outbounds[idx].DialContext(dialCtx, network, destination)
+	}, func(i int, dialErr error) {
+		idx := indices[i]
 		if idx < len(s.stats) && s.stats[idx] != nil && ctx.Err() == nil {
 			// a dial aborted because the caller gave up is not the node's fault
 			s.stats[idx].recordFailure()
 			s.verifyNodeAsync(idx)
 		}
-		lastErr = err
+	})
+	if err != nil {
+		return nil, err
 	}
-	return nil, lastErr
+	idx := indices[winner]
+	if idx < len(s.stats) && s.stats[idx] != nil {
+		s.stats[idx].recordDialSuccess()
+	}
+	s.lastUsed.Store(int64(idx + 1))
+	if s.isStickyEnabled() {
+		destKey := destinationKey(ctx, destination)
+		if destKey != "" {
+			s.setStickySession(destKey, idx)
+		}
+	}
+	if (s.strategy == "leastLoad" || s.strategy == "least_load") && idx < len(s.activeConns) && s.activeConns[idx] != nil {
+		s.activeConns[idx].Add(1)
+		conn = &trackedConn{
+			Conn: conn,
+			onClose: func() {
+				val := s.activeConns[idx].Add(-1)
+				if val < 0 {
+					s.activeConns[idx].Store(0)
+				}
+			},
+		}
+	}
+	external := interrupt.IsExternalConnectionFromContext(ctx)
+	if idx < len(s.nodeInterrupt) && s.nodeInterrupt[idx] != nil {
+		conn = s.nodeInterrupt[idx].NewConn(conn, external)
+	}
+	return s.interruptGroup.NewConn(conn, external), nil
+}
+
+// candidateTimeout 是单个候选（非最后一个）的拨号超时上限，沿用原逻辑。
+func (s *LoadBalance) candidateTimeout(idx int) time.Duration {
+	timeout := 3500 * time.Millisecond
+	if s.isLeastPing() {
+		timeout = 2500 * time.Millisecond
+		if idx < len(s.stats) && s.stats[idx] != nil {
+			ema := s.stats[idx].latencyEmaMs.Load()
+			if ema > 0 {
+				dynamic := time.Duration(ema*3) * time.Millisecond
+				if dynamic < 2000*time.Millisecond {
+					timeout = 2000 * time.Millisecond
+				} else if dynamic > 4500*time.Millisecond {
+					timeout = 4500 * time.Millisecond
+				} else {
+					timeout = dynamic
+				}
+			}
+			if s.stats[idx].consecutiveFails.Load() > 0 {
+				if timeout > 2000*time.Millisecond {
+					timeout = 2000 * time.Millisecond
+				}
+			}
+		}
+	}
+	return timeout
 }
 
 type trackedPacketConn struct {

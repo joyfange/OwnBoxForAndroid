@@ -104,6 +104,21 @@ class AssetsActivity : ThemedActivity() {
                 .substringAfterLast('/')
                 .substringAfter(':')
 
+            // 自定义根证书只放进应用私有目录（filesDir/ca.pem），内核不再信任外部存储里的 ca.pem
+            if (fileName.endsWith(".pem", true) || fileName.endsWith(".crt", true)) {
+                runOnDefaultDispatcher {
+                    val outFile = File(filesDir, "ca.pem")
+                    val tmp = File(filesDir, "ca.pem.tmp")
+                    contentResolver.openInputStream(file)?.use { input ->
+                        tmp.outputStream().use { input.copyTo(it) }
+                    }
+                    tmp.renameTo(outFile)
+                    onMainDispatcher {
+                        snackbar(getString(R.string.custom_ca_imported)).show()
+                    }
+                }
+                return@registerForActivityResult
+            }
             if (!fileName.endsWith(".db")) {
                 alert(getString(R.string.route_not_asset, fileName)).show()
                 return@registerForActivityResult

@@ -30,10 +30,11 @@ func GetFallbackLink(primaryLink string) string {
 	return DefaultCFURL
 }
 
-// ProbeOutbound 对齐真实节点测速基准（两阶段 Keep-Alive 预热探测）：
-// 阶段一（预热）：通过 detour 建立代理连接并完成目标端 TLS 握手，消除冷启动握手带来的虚高延迟；
-// 阶段二（测量）：复用连接池中的保活连接发送探测，测得纯 1-RTT 真实往返时延（~100-250ms）；
-// 若主探测地址不可达，自动以备用地址重试，杜绝 CDN 兼容性造成的误报超时。
+// ProbeOutbound 测的是“真实新连接”的代价（与 Exclave 一致）：
+// 每次都新建连接、只发一次请求，计时包含 经节点拨号 + 节点协议握手 + 到测速站的 TLS + 一次往返。
+// 旧实现先预热再测“复用连接后的第二次往返”，结果偏乐观，握手慢的节点被排得太靠前，
+// 而真实流量每条新连接都要付完整握手的时间。
+// 主地址不可达时以备用地址重试，避免 CDN 兼容性造成误报超时。
 func ProbeOutbound(ctx context.Context, detour adapter.Outbound, link string, timeout time.Duration) (uint16, error) {
 	if detour == nil {
 		return 0, E.New("nil detour")
@@ -75,17 +76,6 @@ func probeSingleURL(parentCtx context.Context, detour adapter.Outbound, link str
 		return 0, E.Cause(err, "parse test link")
 	}
 	hostname := linkURL.Hostname()
-	port := linkURL.Port()
-	if port == "" {
-		switch linkURL.Scheme {
-		case "http":
-			port = "80"
-		case "https":
-			port = "443"
-		default:
-			port = "443"
-		}
-	}
 
 	ctx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
@@ -100,9 +90,8 @@ func probeSingleURL(parentCtx context.Context, detour adapter.Outbound, link str
 			NextProtos:         []string{"h2", "http/1.1"},
 		},
 		ForceAttemptHTTP2: true,
-		DisableKeepAlives: false,
-		MaxIdleConns:      3,
-		IdleConnTimeout:   10 * time.Second,
+		// 每次测速都是全新连接，测完即关
+		DisableKeepAlives: true,
 	}
 	_ = http2.ConfigureTransport(transport)
 	defer transport.CloseIdleConnections()
@@ -114,50 +103,30 @@ func probeSingleURL(parentCtx context.Context, detour adapter.Outbound, link str
 		},
 	}
 
-	// 阶段一：以标准浏览器 UA 发起 GET 预热连接
-	req1, err := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
 	if err != nil {
 		return 0, err
 	}
-	req1.Header.Set("User-Agent", BrowserUserAgent)
+	req.Header.Set("User-Agent", BrowserUserAgent)
 
-	start1 := time.Now()
-	resp1, err := client.Do(req1)
-	if err == nil {
-		_, _ = io.CopyN(io.Discard, resp1.Body, 8192)
-		_ = resp1.Body.Close()
-		if resp1.StatusCode >= 500 {
-			err = fmt.Errorf("HTTP error %d", resp1.StatusCode)
-		}
-	}
+	start := time.Now()
+	resp, err := client.Do(req)
 	if err != nil {
 		return 0, err
 	}
-	pass1 := time.Since(start1)
-
-	// 阶段二：复用保活长连接，测量真实 1-RTT 时延
-	req2, err2 := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
-	if err2 == nil {
-		req2.Header.Set("User-Agent", BrowserUserAgent)
-		start2 := time.Now()
-		resp2, err2Do := client.Do(req2)
-		if err2Do == nil {
-			_, _ = io.CopyN(io.Discard, resp2.Body, 8192)
-			_ = resp2.Body.Close()
-			if resp2.StatusCode < 500 {
-				lat := uint16(time.Since(start2).Milliseconds())
-				if lat == 0 {
-					lat = 1
-				}
-				return lat, nil
-			}
-		}
+	// 计时到响应头为止（含新连接的全部握手），不计响应体下载
+	elapsed := time.Since(start)
+	_, _ = io.CopyN(io.Discard, resp.Body, 8192)
+	_ = resp.Body.Close()
+	if resp.StatusCode >= 500 {
+		return 0, fmt.Errorf("HTTP error %d", resp.StatusCode)
 	}
-
-	// 远端不支持 Keep-Alive 时，回退至阶段一耗时
-	lat := uint16(pass1.Milliseconds())
-	if lat == 0 {
+	lat := elapsed.Milliseconds()
+	if lat <= 0 {
 		lat = 1
 	}
-	return lat, nil
+	if lat > 65535 {
+		lat = 65535
+	}
+	return uint16(lat), nil
 }

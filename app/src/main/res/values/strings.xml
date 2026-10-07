@@ -959,7 +959,7 @@
     <string name="landing_ip_address">Outbound IP</string>
     <string name="landing_ip_isp">ISP / Operator</string>
     <string name="landing_ip_asn">ASN</string>
-    <string name="landing_ip_query_time">Latency</string>
+    <string name="landing_ip_query_time">Query time</string>
     <string name="landing_ip_querying">Querying landing IP...</string>
     <string name="landing_ip_failed">Query failed: node unreachable</string>
     <string name="copy">Copy</string>
@@ -1423,4 +1423,5 @@
     <string name="color_picker_base_dark_note">Pick any colour: it is deepened to a dark background, and the cards, text and primary colour follow it.</string>
     <string name="color_picker_base_note">Pick a background colour. Light or dark is detected automatically and the cards, text and primary colour follow it.</string>
     <string name="color_picker_base_fallback_note">On Android 10 and below the closest preset background is used.</string>
+    <string name="custom_ca_imported">Custom root CA imported to private storage. It takes effect after restarting the app.</string>
 </resources>

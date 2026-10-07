@@ -1333,4 +1333,5 @@
     <string name="color_picker_base_dark_note">任选一种颜色，会自动压暗为深色背景，卡片、文字和主色随之生成。</string>
     <string name="color_picker_base_note">选择背景色，深浅会自动判断，卡片、文字和主色会随之生成。</string>
     <string name="color_picker_base_fallback_note">Android 10 及以下将使用最接近的预设底色。</string>
+    <string name="custom_ca_imported">自定义根证书已导入应用私有目录，重启应用后生效。</string>
 </resources>

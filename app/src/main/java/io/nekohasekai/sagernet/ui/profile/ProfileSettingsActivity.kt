@@ -330,12 +330,10 @@ abstract class ProfileSettingsActivity<T : AbstractBean>(
                         IconCompat.createWithResource(
                             activity, R.drawable.ic_qu_shadowsocks_launcher
                         )
-                    ).setIntent(Intent(
-                        context, QuickToggleShortcut::class.java
-                    ).apply {
-                        action = Intent.ACTION_MAIN
-                        putExtra("profile", ent.id)
-                    }).build()
+                    ).setIntent(
+                        // API 26+ 指向不导出的 QuickToggleShortcut；更老系统走带本机令牌的跳板
+                        io.nekohasekai.sagernet.ShortcutGuard.toggleIntent(activity, ent.id)
+                    ).build()
                 ShortcutManagerCompat.requestPinShortcut(activity, shortcut, null)
             }
 

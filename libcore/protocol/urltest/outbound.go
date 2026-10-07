@@ -217,21 +217,25 @@ func (s *URLTest) DialContext(ctx context.Context, network string, destination M
 	if detour == nil {
 		return nil, E.New("missing supported outbound")
 	}
-	conn, err := detour.DialContext(ctx, network, destination)
+	// 首选节点 + 有有效测速记录的候选（按延迟），Happy Eyeballs 式错峰拨号：
+	// 首选约 0.5 秒还没连上就同时试下一个，谁先连上用谁；首选直接失败则立刻试下一个。
+	candidates := append([]adapter.Outbound{detour}, s.group.liveAlternatives(detour, network, 3)...)
+	primaryFailed := false
+	conn, winner, err := RaceDial(ctx, len(candidates), DefaultDialStagger, func(dialCtx context.Context, i int) (net.Conn, error) {
+		return candidates[i].DialContext(dialCtx, network, destination)
+	}, func(i int, dialErr error) {
+		if i == 0 && ctx.Err() == nil {
+			primaryFailed = true
+		}
+	})
+	if primaryFailed || (err == nil && winner > 0) {
+		// 真实流量在当前节点上拨号失败（或被候选节点抢先）：立刻核实当前节点，失效就切走，而不是等下一轮定时测速
+		go s.group.verifySelectedThrottled("dial failed")
+	}
 	if err == nil {
 		return s.group.interruptGroup.NewConn(conn, interrupt.IsExternalConnectionFromContext(ctx)), nil
 	}
 	s.logger.ErrorContext(ctx, err)
-	// 真实流量拨号失败：立刻核实当前节点，失效就切走，而不是等下一轮定时测速
-	go s.group.verifySelectedThrottled("dial failed")
-
-	// 容灾候选快速故障转移：只尝试有有效测速记录的候选（按延迟），避免逐个拨号死节点拖到超时
-	for _, alt := range s.group.liveAlternatives(detour, network, 3) {
-		altConn, altErr := alt.DialContext(ctx, network, destination)
-		if altErr == nil {
-			return s.group.interruptGroup.NewConn(altConn, interrupt.IsExternalConnectionFromContext(ctx)), nil
-		}
-	}
 	return nil, err
 }
 
@@ -504,7 +508,9 @@ type urlTestBatch struct {
 }
 
 func URLTestOutbounds(ctx context.Context, outboundManager adapter.OutboundManager, history *urltest.HistoryStorage, logger log.Logger, outbounds []adapter.Outbound, link string, interval time.Duration, force bool) map[string]uint16 {
-	b, _ := batch.New(ctx, batch.WithConcurrencyNum[any](6))
+	// 所有节点同时测（Exclave 同款）：之前一次只测 6 个，30 个节点的首轮要约 20 秒，
+	// 首轮结束前策略组只能用第一个成员。上限防止超大订阅一次性打开过多连接。
+	b, _ := batch.New(ctx, batch.WithConcurrencyNum[any](probeConcurrency(outboundManager, outbounds)))
 	testBatch := &urlTestBatch{
 		ctx:      ctx,
 		outbound: outboundManager,
@@ -523,6 +529,40 @@ func URLTestOutbounds(ctx context.Context, outboundManager adapter.OutboundManag
 		}
 	}
 	return testBatch.result
+}
+
+const maxProbeConcurrency = 128
+
+// probeConcurrency 统计（含嵌套分组的）叶子节点数，作为并发数。
+func probeConcurrency(manager adapter.OutboundManager, outbounds []adapter.Outbound) int {
+	seen := make(map[string]bool)
+	var count func(list []adapter.Outbound, depth int)
+	count = func(list []adapter.Outbound, depth int) {
+		for _, o := range list {
+			if o == nil || seen[o.Tag()] {
+				continue
+			}
+			seen[o.Tag()] = true
+			if g, ok := o.(adapter.OutboundGroup); ok && depth < 8 && manager != nil {
+				members := make([]adapter.Outbound, 0, len(g.All()))
+				for _, tag := range g.All() {
+					if m, loaded := manager.Outbound(tag); loaded {
+						members = append(members, m)
+					}
+				}
+				count(members, depth+1)
+			}
+		}
+	}
+	count(outbounds, 0)
+	n := len(seen)
+	if n < 1 {
+		n = 1
+	}
+	if n > maxProbeConcurrency {
+		n = maxProbeConcurrency
+	}
+	return n
 }
 
 func (b *urlTestBatch) test(outbounds []adapter.Outbound, link string, interval time.Duration, force bool) {

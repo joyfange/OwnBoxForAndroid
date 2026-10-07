@@ -48,7 +48,8 @@ object OwnBoxWidgetHelper {
     }
 
     private fun getPendingIntents(context: Context): Triple<PendingIntent, PendingIntent, PendingIntent> {
-        val toggleIntent = Intent(context, OwnBoxWidgetProvider::class.java).apply {
+        // 指向不导出的 WidgetActionReceiver；导出的 AppWidgetProvider 不再响应 ACTION_TOGGLE
+        val toggleIntent = Intent(context, WidgetActionReceiver::class.java).apply {
             action = ACTION_TOGGLE
         }
         val togglePending = PendingIntent.getBroadcast(
@@ -266,57 +267,37 @@ object OwnBoxWidgetHelper {
 }
 
 class OwnBoxWidget1x1 : AppWidgetProvider() {
-    override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == OwnBoxWidgetHelper.ACTION_TOGGLE) {
-            OwnBoxWidgetHelper.handleToggle(context)
-            return
-        }
-        super.onReceive(context, intent)
-    }
-
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         OwnBoxWidgetHelper.updateAllWidgets(context)
     }
 }
 
 class OwnBoxWidget2x2 : AppWidgetProvider() {
-    override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == OwnBoxWidgetHelper.ACTION_TOGGLE) {
-            OwnBoxWidgetHelper.handleToggle(context)
-            return
-        }
-        super.onReceive(context, intent)
-    }
-
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         OwnBoxWidgetHelper.updateAllWidgets(context)
     }
 }
 
 class OwnBoxWidget4x1 : AppWidgetProvider() {
-    override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == OwnBoxWidgetHelper.ACTION_TOGGLE) {
-            OwnBoxWidgetHelper.handleToggle(context)
-            return
-        }
-        super.onReceive(context, intent)
-    }
-
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         OwnBoxWidgetHelper.updateAllWidgets(context)
     }
 }
 
 class OwnBoxWidget4x2 : AppWidgetProvider() {
+    override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
+        OwnBoxWidgetHelper.updateAllWidgets(context)
+    }
+}
+
+/**
+ * 小部件开关按钮的唯一处理者。manifest 中 exported=false，
+ * 只有本应用（含系统代发的、由本应用创建的 PendingIntent）能把广播送进来。
+ */
+class WidgetActionReceiver : android.content.BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == OwnBoxWidgetHelper.ACTION_TOGGLE) {
             OwnBoxWidgetHelper.handleToggle(context)
-            return
         }
-        super.onReceive(context, intent)
-    }
-
-    override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-        OwnBoxWidgetHelper.updateAllWidgets(context)
     }
 }
