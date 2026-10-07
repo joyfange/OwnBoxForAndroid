@@ -1353,4 +1353,28 @@
         <item quantity="one">Updated %d remote routing profile.</item>
         <item quantity="other">Updated %d remote routing profiles.</item>
     </plurals>
+    <!-- theme colour dialog -->
+    <string name="theme_base_section">Base theme</string>
+    <string name="theme_base_night_note">Night mode is on, so the black base is shown. Choosing a light base turns night mode off.</string>
+    <string name="theme_accent_section">Accent color</string>
+    <string name="accent_default">Default</string>
+    <string name="accent_blue">Blue</string>
+    <string name="accent_indigo">Indigo</string>
+    <string name="accent_purple">Purple</string>
+    <string name="accent_pink">Pink</string>
+    <string name="accent_red">Red</string>
+    <string name="accent_orange">Orange</string>
+    <string name="accent_amber">Amber</string>
+    <string name="accent_green">Green</string>
+    <string name="accent_teal">Teal</string>
+    <string name="accent_cyan">Cyan</string>
+    <string name="accent_brown">Brown</string>
+    <string name="accent_blue_grey">Blue Grey</string>
+    <string name="accent_custom">Custom color</string>
+    <string name="color_picker_hex">HEX (#RRGGBB)</string>
+    <string name="color_picker_hue">Hue %1$d°</string>
+    <string name="color_picker_saturation">Saturation %1$d%%</string>
+    <string name="color_picker_brightness">Brightness %1$d%%</string>
+    <string name="color_picker_invalid">Enter a color like #1E88E5</string>
+    <string name="color_picker_fallback_note">On Android 10 and below the closest preset accent is used.</string>
 </resources>

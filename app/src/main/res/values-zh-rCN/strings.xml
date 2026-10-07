@@ -1263,4 +1263,28 @@
     <plurals name="route_update_complete">
         <item quantity="other">已更新 %d 个远程路由配置。</item>
     </plurals>
+    <!-- 主题颜色对话框 -->
+    <string name="theme_base_section">核心基础规范主题</string>
+    <string name="theme_base_night_note">夜间模式已开启，当前显示纯黑底色；选择浅色底色将关闭夜间模式。</string>
+    <string name="theme_accent_section">强调色</string>
+    <string name="accent_default">默认</string>
+    <string name="accent_blue">蓝</string>
+    <string name="accent_indigo">靛青</string>
+    <string name="accent_purple">紫</string>
+    <string name="accent_pink">粉</string>
+    <string name="accent_red">红</string>
+    <string name="accent_orange">橙</string>
+    <string name="accent_amber">琥珀</string>
+    <string name="accent_green">绿</string>
+    <string name="accent_teal">青</string>
+    <string name="accent_cyan">青蓝</string>
+    <string name="accent_brown">棕</string>
+    <string name="accent_blue_grey">蓝灰</string>
+    <string name="accent_custom">自定义颜色</string>
+    <string name="color_picker_hex">HEX（#RRGGBB）</string>
+    <string name="color_picker_hue">色相 %1$d°</string>
+    <string name="color_picker_saturation">饱和度 %1$d%%</string>
+    <string name="color_picker_brightness">明度 %1$d%%</string>
+    <string name="color_picker_invalid">请输入颜色，例如 #1E88E5</string>
+    <string name="color_picker_fallback_note">Android 10 及以下将使用最接近的预设强调色。</string>
 </resources>

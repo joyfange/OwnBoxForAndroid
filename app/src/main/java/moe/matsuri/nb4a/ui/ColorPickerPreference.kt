@@ -15,8 +15,10 @@ import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.core.content.res.ResourcesCompat
 import androidx.core.content.res.TypedArrayUtils
+import androidx.core.graphics.ColorUtils
 import androidx.core.graphics.drawable.DrawableCompat
 import androidx.core.view.setPadding
 import androidx.core.widget.NestedScrollView
@@ -102,6 +104,18 @@ class ColorPickerPreference @JvmOverloads constructor(
         return layer
     }
 
+    private fun recreateHost() {
+        (context as? Activity)?.let { ActivityCompat.recreate(it) }
+    }
+
+    private fun sectionTitle(text: String) = TextView(context).apply {
+        this.text = text
+        textSize = 13f
+        setTextColor(context.getColorAttr(R.attr.primaryOrTextSecondary))
+        setTypeface(null, Typeface.BOLD)
+        setPadding(dp2px(4), dp2px(4), 0, dp2px(8))
+    }
+
     override fun onClick() {
         super.onClick()
 
@@ -116,32 +130,51 @@ class ColorPickerPreference @JvmOverloads constructor(
             addView(rootLayout)
         }
 
-        val currentThemeId = if (DataStore.appTheme !in setOf(Theme.BLACK, Theme.WHITE, Theme.LIGHT_GRAY)) {
-            Theme.LIGHT_GRAY
-        } else {
-            DataStore.appTheme
+        val nightActive = Theme.usingNightMode(context)
+        // What is actually on screen: night mode always shows the black base.
+        val currentThemeId = when {
+            nightActive -> Theme.BLACK
+            DataStore.appTheme !in setOf(Theme.BLACK, Theme.WHITE, Theme.LIGHT_GRAY) -> Theme.LIGHT_GRAY
+            else -> DataStore.appTheme
         }
 
         fun applyTheme(themeId: Int) {
+            dialog.dismiss()
+            if (themeId == currentThemeId) return
             persistInt(themeId)
             DataStore.appTheme = themeId
-            Theme.applyNightTheme()
-            dialog.dismiss()
-            callChangeListener(themeId)
-            (context as? Activity)?.let {
-                ActivityCompat.recreate(it)
+            // Theme.getTheme() forces the black base while night mode is in effect (night mode "on", or "follow
+            // system" with a dark system), so picking a light base used to do nothing. Choosing a light base turns
+            // night mode off so the choice applies; picking black again works with any night mode setting.
+            if (themeId != Theme.BLACK && Theme.usingNightMode(context)) {
+                DataStore.nightTheme = 2
+                Theme.currentNightMode = 2
             }
+            Theme.applyNightTheme()
+            callChangeListener(themeId)
+            notifyChanged()
+            recreateHost()
+        }
+
+        fun applyAccent(accentId: Int, customColor: Int? = null) {
+            dialog.dismiss()
+            if (customColor != null) DataStore.accentCustomColor = customColor
+            if (accentId == DataStore.accentTheme && customColor == null) return
+            DataStore.accentTheme = accentId
+            notifyChanged()
+            recreateHost()
         }
 
         // 1. Core Base Themes Section
-        val baseTitle = TextView(context).apply {
-            text = "核心基础规范主题"
-            textSize = 13f
-            setTextColor(context.getColorAttr(R.attr.primaryOrTextSecondary))
-            setTypeface(null, Typeface.BOLD)
-            setPadding(dp2px(4), dp2px(4), 0, dp2px(8))
+        rootLayout.addView(sectionTitle(context.getString(R.string.theme_base_section)))
+        if (nightActive) {
+            rootLayout.addView(TextView(context).apply {
+                text = context.getString(R.string.theme_base_night_note)
+                textSize = 11.5f
+                setTextColor(context.getColorAttr(android.R.attr.textColorSecondary))
+                setPadding(dp2px(4), 0, dp2px(4), dp2px(8))
+            })
         }
-        rootLayout.addView(baseTitle)
 
         val baseThemes = listOf(
             PresetTheme(Theme.BLACK, "纯黑 (AMOLED Black)", Color.BLACK, "纯黑底色 #000000 · 极致省电高对比"),
@@ -208,6 +241,114 @@ class ColorPickerPreference @JvmOverloads constructor(
                 addView(row)
             }
             rootLayout.addView(card)
+        }
+
+        // 2. Accent colours (independent of the base above)
+        rootLayout.addView(sectionTitle(context.getString(R.string.theme_accent_section)).apply {
+            setPadding(dp2px(4), dp2px(12), 0, dp2px(8))
+        })
+
+        val dark = Theme.isBlackTheme(context)
+        val currentAccent = DataStore.accentTheme
+        val noneColor = when (currentThemeId) {
+            Theme.BLACK -> Color.WHITE
+            Theme.WHITE -> Color.parseColor("#212121")
+            else -> Color.parseColor("#1F2937")
+        }
+
+        class Swatch(val id: Int, val label: String, val color: Int)
+
+        val swatches = ArrayList<Swatch>()
+        swatches.add(Swatch(Theme.ACCENT_NONE, context.getString(R.string.accent_default), noneColor))
+        for (accent in Theme.ACCENTS) {
+            swatches.add(
+                Swatch(
+                    accent.id, context.getString(accent.title),
+                    ContextCompat.getColor(context, if (dark) accent.darkColor else accent.lightColor)
+                )
+            )
+        }
+        swatches.add(Swatch(Theme.CUSTOM, context.getString(R.string.accent_custom), DataStore.accentCustomColor))
+
+        val columns = 5
+        var row: LinearLayout? = null
+        swatches.forEachIndexed { index, swatch ->
+            if (index % columns == 0) {
+                val newRow = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { bottomMargin = dp2px(6) }
+                }
+                rootLayout.addView(newRow)
+                row = newRow
+            }
+            val selected = swatch.id == currentAccent
+            val cell = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                setPadding(0, dp2px(4), 0, dp2px(4))
+                isClickable = true
+                isFocusable = true
+                val outValue = android.util.TypedValue()
+                context.theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, outValue, true)
+                if (outValue.resourceId != 0) setBackgroundResource(outValue.resourceId)
+                setOnClickListener {
+                    if (swatch.id == Theme.CUSTOM) {
+                        AccentColorPickerDialog.show(context, DataStore.accentCustomColor) { picked ->
+                            applyAccent(Theme.CUSTOM, picked)
+                        }
+                    } else {
+                        applyAccent(swatch.id)
+                    }
+                }
+                addView(ImageView(context).apply {
+                    val sz = dp2px(36)
+                    layoutParams = LinearLayout.LayoutParams(sz, sz)
+                    setImageDrawable(getColorBadgeDrawable(context.resources, swatch.color, selected))
+                    if (swatch.id == Theme.CUSTOM && !selected) {
+                        // mark the custom slot with the palette icon so it reads as "pick a colour"
+                        val icon = ResourcesCompat.getDrawable(
+                            context.resources, R.drawable.ic_baseline_color_lens_24, null
+                        )?.mutate()
+                        if (icon != null) {
+                            DrawableCompat.setTint(
+                                icon,
+                                if (ColorUtils.calculateContrast(Color.WHITE, swatch.color or 0xFF000000.toInt()) >= 3.0) Color.WHITE else Color.BLACK
+                            )
+                            val inset = dp2px(9)
+                            val layer = LayerDrawable(arrayOf(getColorBadgeDrawable(context.resources, swatch.color, false), icon))
+                            layer.setLayerInset(1, inset, inset, inset, inset)
+                            setImageDrawable(layer)
+                        }
+                    }
+                })
+                addView(TextView(context).apply {
+                    text = swatch.label
+                    textSize = 11f
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    gravity = Gravity.CENTER
+                    setPadding(dp2px(2), dp2px(4), dp2px(2), 0)
+                    setTypeface(null, if (selected) Typeface.BOLD else Typeface.NORMAL)
+                    setTextColor(
+                        context.getColorAttr(
+                            if (selected) android.R.attr.textColorPrimary else android.R.attr.textColorSecondary
+                        )
+                    )
+                })
+            }
+            row?.addView(cell)
+        }
+        // pad the last row so cells keep their width
+        val remainder = swatches.size % columns
+        if (remainder != 0) {
+            repeat(columns - remainder) {
+                row?.addView(android.view.View(context).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
+                })
+            }
         }
 
         dialog = MaterialAlertDialogBuilder(context)

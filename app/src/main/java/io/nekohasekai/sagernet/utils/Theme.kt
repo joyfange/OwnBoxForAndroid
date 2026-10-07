@@ -5,12 +5,18 @@ import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Build
+import androidx.annotation.ColorInt
+import androidx.annotation.StringRes
+import androidx.annotation.StyleRes
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
+import com.google.android.material.color.OwnBoxColorOverrides
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.ktx.app
 import io.nekohasekai.sagernet.ktx.getColorAttr
+import kotlin.math.abs
 
 object Theme {
 
@@ -40,6 +46,105 @@ object Theme {
     const val WHITE = 23
     const val LIGHT_GRAY = 24
     const val CUSTOM = 99
+
+    /** No accent: keep the base theme's own (monochrome) primary colour. */
+    const val ACCENT_NONE = 0
+
+    /**
+     * An accent palette applied over the base theme (black / white / light gray). [light] is used on the light bases,
+     * [dark] on the black base.
+     */
+    class Accent(
+        val id: Int,
+        @StringRes val title: Int,
+        @StyleRes val light: Int,
+        @StyleRes val dark: Int,
+        @androidx.annotation.ColorRes val lightColor: Int,
+        @androidx.annotation.ColorRes val darkColor: Int,
+    )
+
+    val ACCENTS = listOf(
+        Accent(BLUE, R.string.accent_blue, R.style.ThemeOverlay_OwnBox_Accent_Blue, R.style.ThemeOverlay_OwnBox_Accent_Blue_Dark, R.color.accent_blue_light, R.color.accent_blue_dark),
+        Accent(INDIGO, R.string.accent_indigo, R.style.ThemeOverlay_OwnBox_Accent_Indigo, R.style.ThemeOverlay_OwnBox_Accent_Indigo_Dark, R.color.accent_indigo_light, R.color.accent_indigo_dark),
+        Accent(PURPLE, R.string.accent_purple, R.style.ThemeOverlay_OwnBox_Accent_Purple, R.style.ThemeOverlay_OwnBox_Accent_Purple_Dark, R.color.accent_purple_light, R.color.accent_purple_dark),
+        Accent(PINK, R.string.accent_pink, R.style.ThemeOverlay_OwnBox_Accent_Pink, R.style.ThemeOverlay_OwnBox_Accent_Pink_Dark, R.color.accent_pink_light, R.color.accent_pink_dark),
+        Accent(RED, R.string.accent_red, R.style.ThemeOverlay_OwnBox_Accent_Red, R.style.ThemeOverlay_OwnBox_Accent_Red_Dark, R.color.accent_red_light, R.color.accent_red_dark),
+        Accent(ORANGE, R.string.accent_orange, R.style.ThemeOverlay_OwnBox_Accent_Orange, R.style.ThemeOverlay_OwnBox_Accent_Orange_Dark, R.color.accent_orange_light, R.color.accent_orange_dark),
+        Accent(AMBER, R.string.accent_amber, R.style.ThemeOverlay_OwnBox_Accent_Amber, R.style.ThemeOverlay_OwnBox_Accent_Amber_Dark, R.color.accent_amber_light, R.color.accent_amber_dark),
+        Accent(GREEN, R.string.accent_green, R.style.ThemeOverlay_OwnBox_Accent_Green, R.style.ThemeOverlay_OwnBox_Accent_Green_Dark, R.color.accent_green_light, R.color.accent_green_dark),
+        Accent(TEAL, R.string.accent_teal, R.style.ThemeOverlay_OwnBox_Accent_Teal, R.style.ThemeOverlay_OwnBox_Accent_Teal_Dark, R.color.accent_teal_light, R.color.accent_teal_dark),
+        Accent(CYAN, R.string.accent_cyan, R.style.ThemeOverlay_OwnBox_Accent_Cyan, R.style.ThemeOverlay_OwnBox_Accent_Cyan_Dark, R.color.accent_cyan_light, R.color.accent_cyan_dark),
+        Accent(BROWN, R.string.accent_brown, R.style.ThemeOverlay_OwnBox_Accent_Brown, R.style.ThemeOverlay_OwnBox_Accent_Brown_Dark, R.color.accent_brown_light, R.color.accent_brown_dark),
+        Accent(BLUE_GREY, R.string.accent_blue_grey, R.style.ThemeOverlay_OwnBox_Accent_BlueGrey, R.style.ThemeOverlay_OwnBox_Accent_BlueGrey_Dark, R.color.accent_blue_grey_light, R.color.accent_blue_grey_dark),
+    )
+
+    fun accentOf(id: Int): Accent? = ACCENTS.firstOrNull { it.id == id }
+
+    /** The preset whose light colour has the closest hue (custom colour fallback below Android 11). */
+    fun closestAccent(context: Context, @ColorInt color: Int): Accent {
+        val target = FloatArray(3)
+        Color.colorToHSV(color, target)
+        val hsv = FloatArray(3)
+        // greyish colours map to blue grey; everything else to the preset with the nearest hue
+        if (target[1] < 0.2f) return accentOf(BLUE_GREY) ?: ACCENTS.first()
+        return ACCENTS.filter { it.id != BLUE_GREY }.minByOrNull {
+            Color.colorToHSV(ContextCompat.getColor(context, it.lightColor), hsv)
+            val d = abs(hsv[0] - target[0])
+            minOf(d, 360f - d)
+        } ?: ACCENTS.first()
+    }
+
+    /** Colours written into the custom accent's colour resources (R.color.accent_custom*) for [color]. */
+    fun customAccentColors(@ColorInt color: Int, dark: Boolean): Map<Int, Int> {
+        val opaque = color or 0xFF000000.toInt()
+        val onColor = if (ColorUtils.calculateContrast(Color.WHITE, opaque) >= 3.0) Color.WHITE else Color.BLACK
+        val variant = ColorUtils.blendARGB(opaque, Color.BLACK, 0.2f)
+        val container = if (dark) ColorUtils.blendARGB(opaque, Color.BLACK, 0.72f) else ColorUtils.blendARGB(opaque, Color.WHITE, 0.82f)
+        return mapOf(
+            R.color.accent_custom to opaque,
+            R.color.accent_custom_variant to variant,
+            R.color.accent_custom_on to onColor,
+            R.color.accent_custom_container to container,
+        )
+    }
+
+    /**
+     * Applies the selected accent on top of the base theme already set on [context]. The custom colour is installed
+     * by overriding the custom accent's colour resources (Android 11+, activities only); elsewhere the closest preset
+     * is used instead.
+     */
+    fun applyAccent(context: Context) {
+        val dark = isBlackTheme(context)
+        when (val id = DataStore.accentTheme) {
+            ACCENT_NONE -> return
+            CUSTOM -> {
+                val color = DataStore.accentCustomColor
+                val installed = context is android.app.Activity &&
+                        OwnBoxColorOverrides.apply(context, customAccentColors(color, dark))
+                if (installed) {
+                    context.theme.applyStyle(R.style.ThemeOverlay_OwnBox_Accent_Custom, true)
+                } else {
+                    val preset = closestAccent(context, color)
+                    context.theme.applyStyle(if (dark) preset.dark else preset.light, true)
+                }
+            }
+
+            else -> {
+                val accent = accentOf(id) ?: return
+                context.theme.applyStyle(if (dark) accent.dark else accent.light, true)
+            }
+        }
+    }
+
+    /** The accent colour currently in effect, or null when no accent is selected. */
+    @ColorInt
+    fun accentColor(context: Context): Int? {
+        val id = DataStore.accentTheme
+        if (id == ACCENT_NONE) return null
+        if (id == CUSTOM) return context.getColorAttr(R.attr.colorPrimary)
+        val accent = accentOf(id) ?: return null
+        return ContextCompat.getColor(context, if (isBlackTheme(context)) accent.darkColor else accent.lightColor)
+    }
 
     private fun defaultTheme() = LIGHT_GRAY
 
@@ -77,6 +182,7 @@ object Theme {
 
     fun apply(context: Context) {
         context.setTheme(getTheme(context))
+        applyAccent(context)
         if (!isWhiteTheme(context) && !isLightGrayTheme(context) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && DataStore.useSystemTheme && context is android.app.Activity) {
             com.google.android.material.color.DynamicColors.applyIfAvailable(context)
         }
@@ -84,6 +190,7 @@ object Theme {
 
     fun applyDialog(context: Context) {
         context.setTheme(getDialogTheme(context))
+        applyAccent(context)
         if (!isWhiteTheme(context) && !isLightGrayTheme(context) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && DataStore.useSystemTheme && context is android.app.Activity) {
             com.google.android.material.color.DynamicColors.applyIfAvailable(context)
         }
@@ -166,6 +273,7 @@ object Theme {
     fun isBlackTheme(context: Context = app): Boolean = usingNightMode(context) || DataStore.appTheme == BLACK
 
     fun getPrimaryColor(context: Context): Int {
+        accentColor(context)?.let { return it }
         if (usingNightMode(context) || isBlackTheme(context)) {
             return Color.WHITE
         }

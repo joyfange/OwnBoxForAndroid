@@ -115,6 +115,10 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var isExpert by configurationStore.boolean(Key.APP_EXPERT)
     var appTheme by configurationStore.int(Key.APP_THEME) { Theme.LIGHT_GRAY }
     val useSystemTheme: Boolean get() = false
+    /** Accent palette on top of the base theme ([Theme.ACCENT_NONE], one of [Theme.ACCENTS] or [Theme.CUSTOM]). */
+    var accentTheme by configurationStore.int(Key.ACCENT_THEME) { Theme.ACCENT_NONE }
+    /** ARGB of the custom accent ([Theme.CUSTOM]). */
+    var accentCustomColor by configurationStore.int(Key.ACCENT_CUSTOM_COLOR) { 0xFF1E88E5.toInt() }
     var nightTheme by configurationStore.stringToInt(Key.NIGHT_THEME)
     var appLanguage by configurationStore.string(Key.APP_LANGUAGE) { "" }
     var serviceMode by configurationStore.string(Key.SERVICE_MODE) { Key.MODE_VPN }

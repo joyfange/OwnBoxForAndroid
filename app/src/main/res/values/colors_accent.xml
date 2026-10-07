@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Accent palettes for the theme colour dialog (Theme.ACCENTS). *_light is applied on the white / light-gray
+     bases, *_dark on the black (AMOLED) base. Generated: on = best contrast text, container = soft tint. -->
+<resources>
+    <!-- blue -->
+    <color name="accent_blue_light">#1E88E5</color>
+    <color name="accent_blue_light_variant">#1565C0</color>
+    <color name="accent_blue_light_on">#FFFFFF</color>
+    <color name="accent_blue_light_container">#D6EAFA</color>
+    <color name="accent_blue_dark">#64B5F6</color>
+    <color name="accent_blue_dark_variant">#42A5F5</color>
+    <color name="accent_blue_dark_on">#000000</color>
+    <color name="accent_blue_dark_container">#1C3345</color>
+    <!-- indigo -->
+    <color name="accent_indigo_light">#3949AB</color>
+    <color name="accent_indigo_light_variant">#283593</color>
+    <color name="accent_indigo_light_on">#FFFFFF</color>
+    <color name="accent_indigo_light_container">#DBDEF0</color>
+    <color name="accent_indigo_dark">#7986CB</color>
+    <color name="accent_indigo_dark_variant">#5C6BC0</color>
+    <color name="accent_indigo_dark_on">#FFFFFF</color>
+    <color name="accent_indigo_dark_container">#222639</color>
+    <!-- purple -->
+    <color name="accent_purple_light">#8E24AA</color>
+    <color name="accent_purple_light_variant">#6A1B9A</color>
+    <color name="accent_purple_light_on">#FFFFFF</color>
+    <color name="accent_purple_light_container">#EBD8F0</color>
+    <color name="accent_purple_dark">#BA68C8</color>
+    <color name="accent_purple_dark_variant">#AB47BC</color>
+    <color name="accent_purple_dark_on">#FFFFFF</color>
+    <color name="accent_purple_dark_container">#341D38</color>
+    <!-- pink -->
+    <color name="accent_pink_light">#D81B60</color>
+    <color name="accent_pink_light_variant">#AD1457</color>
+    <color name="accent_pink_light_on">#FFFFFF</color>
+    <color name="accent_pink_light_container">#F8D6E2</color>
+    <color name="accent_pink_dark">#F06292</color>
+    <color name="accent_pink_dark_variant">#EC407A</color>
+    <color name="accent_pink_dark_on">#FFFFFF</color>
+    <color name="accent_pink_dark_container">#431B29</color>
+    <!-- red -->
+    <color name="accent_red_light">#E53935</color>
+    <color name="accent_red_light_variant">#C62828</color>
+    <color name="accent_red_light_on">#FFFFFF</color>
+    <color name="accent_red_light_container">#FADBDB</color>
+    <color name="accent_red_dark">#E57373</color>
+    <color name="accent_red_dark_variant">#EF5350</color>
+    <color name="accent_red_dark_on">#000000</color>
+    <color name="accent_red_dark_container">#402020</color>
+    <!-- orange -->
+    <color name="accent_orange_light">#EF6C00</color>
+    <color name="accent_orange_light_variant">#E65100</color>
+    <color name="accent_orange_light_on">#FFFFFF</color>
+    <color name="accent_orange_light_container">#FCE5D1</color>
+    <color name="accent_orange_dark">#FFB74D</color>
+    <color name="accent_orange_dark_variant">#FFA726</color>
+    <color name="accent_orange_dark_on">#000000</color>
+    <color name="accent_orange_dark_container">#473316</color>
+    <!-- amber -->
+    <color name="accent_amber_light">#FF8F00</color>
+    <color name="accent_amber_light_variant">#FF6F00</color>
+    <color name="accent_amber_light_on">#000000</color>
+    <color name="accent_amber_light_container">#FFEBD1</color>
+    <color name="accent_amber_dark">#FFD54F</color>
+    <color name="accent_amber_dark_variant">#FFCA28</color>
+    <color name="accent_amber_dark_on">#000000</color>
+    <color name="accent_amber_dark_container">#473C16</color>
+    <!-- green -->
+    <color name="accent_green_light">#43A047</color>
+    <color name="accent_green_light_variant">#2E7D32</color>
+    <color name="accent_green_light_on">#FFFFFF</color>
+    <color name="accent_green_light_container">#DDEEDE</color>
+    <color name="accent_green_dark">#81C784</color>
+    <color name="accent_green_dark_variant">#66BB6A</color>
+    <color name="accent_green_dark_on">#000000</color>
+    <color name="accent_green_dark_container">#243825</color>
+    <!-- teal -->
+    <color name="accent_teal_light">#00897B</color>
+    <color name="accent_teal_light_variant">#00695C</color>
+    <color name="accent_teal_light_on">#FFFFFF</color>
+    <color name="accent_teal_light_container">#D1EAE7</color>
+    <color name="accent_teal_dark">#4DB6AC</color>
+    <color name="accent_teal_dark_variant">#26A69A</color>
+    <color name="accent_teal_dark_on">#000000</color>
+    <color name="accent_teal_dark_container">#163330</color>
+    <!-- cyan -->
+    <color name="accent_cyan_light">#0097A7</color>
+    <color name="accent_cyan_light_variant">#00838F</color>
+    <color name="accent_cyan_light_on">#FFFFFF</color>
+    <color name="accent_cyan_light_container">#D1ECEF</color>
+    <color name="accent_cyan_dark">#4DD0E1</color>
+    <color name="accent_cyan_dark_variant">#26C6DA</color>
+    <color name="accent_cyan_dark_on">#000000</color>
+    <color name="accent_cyan_dark_container">#163A3F</color>
+    <!-- brown -->
+    <color name="accent_brown_light">#795548</color>
+    <color name="accent_brown_light_variant">#5D4037</color>
+    <color name="accent_brown_light_on">#FFFFFF</color>
+    <color name="accent_brown_light_container">#E7E0DE</color>
+    <color name="accent_brown_dark">#A1887F</color>
+    <color name="accent_brown_dark_variant">#8D6E63</color>
+    <color name="accent_brown_dark_on">#FFFFFF</color>
+    <color name="accent_brown_dark_container">#2D2624</color>
+    <!-- blue_grey -->
+    <color name="accent_blue_grey_light">#546E7A</color>
+    <color name="accent_blue_grey_light_variant">#455A64</color>
+    <color name="accent_blue_grey_light_on">#FFFFFF</color>
+    <color name="accent_blue_grey_light_container">#E0E5E7</color>
+    <color name="accent_blue_grey_dark">#90A4AE</color>
+    <color name="accent_blue_grey_dark_variant">#78909C</color>
+    <color name="accent_blue_grey_dark_on">#000000</color>
+    <color name="accent_blue_grey_dark_container">#282E31</color>
+    <!-- custom: values are replaced at runtime (API 30+, ResourcesLoader) with the user's colour -->
+    <color name="accent_custom">#1E88E5</color>
+    <color name="accent_custom_variant">#1565C0</color>
+    <color name="accent_custom_on">#FFFFFF</color>
+    <color name="accent_custom_container">#D2E7FA</color>
+</resources>

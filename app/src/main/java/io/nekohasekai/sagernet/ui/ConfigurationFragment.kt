@@ -742,6 +742,11 @@ class ConfigurationFragment @JvmOverloads constructor(
                 tabLayout.setTabTextColors(tabUnselectedTextColor, tabSelectedTextColor)
             }
         }
+        // accent colour (theme colour dialog) on top of the black / white / gray bases
+        Theme.accentColor(ctx)?.let { accent ->
+            tabLayout.setSelectedTabIndicatorColor(accent)
+            tabLayout.setTabTextColors(tabLayout.tabTextColors?.defaultColor ?: accent, accent)
+        }
 
         val searchItem = toolbar.menu.findItem(R.id.action_search)
         val searchView = (searchItem?.actionView as? SearchView) ?: toolbar.findViewById<SearchView>(R.id.action_search)

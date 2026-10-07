@@ -34,6 +34,8 @@ abstract class ThemedActivity : AppCompatActivity {
     private var lastAppTheme: Int = 0
     private var lastNightTheme: Int = 0
     private var lastUsingNight: Boolean = false
+    private var lastAccent: Int = 0
+    private var lastAccentColor: Int = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         lastUseSystemTheme = DataStore.useSystemTheme
@@ -41,6 +43,8 @@ abstract class ThemedActivity : AppCompatActivity {
         lastAppTheme = DataStore.appTheme
         lastNightTheme = DataStore.nightTheme
         lastUsingNight = Theme.usingNightMode(this)
+        lastAccent = DataStore.accentTheme
+        lastAccentColor = DataStore.accentCustomColor
 
         Theme.applyNightTheme()
         if (!isDialog) {
@@ -116,7 +120,9 @@ abstract class ThemedActivity : AppCompatActivity {
             (DataStore.useSystemTheme && lastWallpaperColor != currentWallpaperColor) ||
             (!DataStore.useSystemTheme && lastAppTheme != DataStore.appTheme) ||
             lastNightTheme != DataStore.nightTheme ||
-            lastUsingNight != currentUsingNight) {
+            lastUsingNight != currentUsingNight ||
+            lastAccent != DataStore.accentTheme ||
+            (lastAccent == Theme.CUSTOM && lastAccentColor != DataStore.accentCustomColor)) {
             ActivityCompat.recreate(this)
         }
     }

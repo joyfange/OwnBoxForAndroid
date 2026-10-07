@@ -90,7 +90,9 @@ class MainActivity : ThemedActivity(),
         binding = LayoutMainBinding.inflate(layoutInflater)
         binding.fab.initProgress(binding.fabProgress)
         val isNight = Theme.usingNightMode(this)
+        val accentColor = Theme.accentColor(this)
         val fabBgColor = when {
+            accentColor != null -> accentColor
             Theme.isBlackTheme(this) -> Color.BLACK
             Theme.isWhiteTheme(this) -> Color.parseColor("#212121")
             Theme.isLightGrayTheme(this) -> Color.parseColor("#1F2937")
@@ -109,7 +111,10 @@ class MainActivity : ThemedActivity(),
             }
         }
         binding.fab.backgroundTintList = ColorStateList.valueOf(fabBgColor)
-        binding.fab.imageTintList = ColorStateList.valueOf(Color.WHITE)
+        binding.fab.imageTintList = ColorStateList.valueOf(
+            if (accentColor != null && ColorUtils.calculateContrast(Color.WHITE, accentColor or 0xFF000000.toInt()) < 3.0) Color.BLACK
+            else Color.WHITE
+        )
         if (themeResId !in intArrayOf(
                 R.style.Theme_SagerNet_Black
             )

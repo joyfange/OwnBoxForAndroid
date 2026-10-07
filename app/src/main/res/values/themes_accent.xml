@@ -1,0 +1,529 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Accent theme overlays applied on top of the base theme (Theme.applyAccent). -->
+<resources>
+    <style name="ThemeOverlay.OwnBox.Accent.Blue" parent="">
+        <item name="colorPrimary">@color/accent_blue_light</item>
+        <item name="colorPrimaryDark">@color/accent_blue_light_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_blue_light_variant</item>
+        <item name="colorAccent">@color/accent_blue_light</item>
+        <item name="colorSecondary">@color/accent_blue_light</item>
+        <item name="colorSecondaryVariant">@color/accent_blue_light_variant</item>
+        <item name="colorOnPrimary">@color/accent_blue_light_on</item>
+        <item name="colorOnSecondary">@color/accent_blue_light_on</item>
+        <item name="colorControlActivated">@color/accent_blue_light</item>
+        <item name="colorMaterial100">@color/accent_blue_light_container</item>
+        <item name="colorMaterial300">@color/accent_blue_light</item>
+        <item name="primaryOrTextPrimary">@color/accent_blue_light</item>
+        <item name="primaryOrTextSecondary">@color/accent_blue_light</item>
+        <item name="accentOrTextPrimary">@color/accent_blue_light</item>
+        <item name="accentOrTextSecondary">@color/accent_blue_light</item>
+        <item name="selectedColorPrimary">@color/accent_blue_light</item>
+        <item name="fabColorBackground">@color/accent_blue_light</item>
+        <item name="tabSelectedTextColor">@color/accent_blue_light</item>
+        <item name="tabIndicatorColor">@color/accent_blue_light</item>
+    </style>
+    <style name="ThemeOverlay.OwnBox.Accent.Blue.Dark" parent="">
+        <item name="colorPrimary">@color/accent_blue_dark</item>
+        <item name="colorPrimaryDark">@color/accent_blue_dark_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_blue_dark_variant</item>
+        <item name="colorAccent">@color/accent_blue_dark</item>
+        <item name="colorSecondary">@color/accent_blue_dark</item>
+        <item name="colorSecondaryVariant">@color/accent_blue_dark_variant</item>
+        <item name="colorOnPrimary">@color/accent_blue_dark_on</item>
+        <item name="colorOnSecondary">@color/accent_blue_dark_on</item>
+        <item name="colorControlActivated">@color/accent_blue_dark</item>
+        <item name="colorMaterial100">@color/accent_blue_dark_container</item>
+        <item name="colorMaterial300">@color/accent_blue_dark</item>
+        <item name="primaryOrTextPrimary">@color/accent_blue_dark</item>
+        <item name="primaryOrTextSecondary">@color/accent_blue_dark</item>
+        <item name="accentOrTextPrimary">@color/accent_blue_dark</item>
+        <item name="accentOrTextSecondary">@color/accent_blue_dark</item>
+        <item name="selectedColorPrimary">@color/accent_blue_dark</item>
+        <item name="fabColorBackground">@color/accent_blue_dark</item>
+        <item name="tabSelectedTextColor">@color/accent_blue_dark</item>
+        <item name="tabIndicatorColor">@color/accent_blue_dark</item>
+    </style>
+    <style name="ThemeOverlay.OwnBox.Accent.Indigo" parent="">
+        <item name="colorPrimary">@color/accent_indigo_light</item>
+        <item name="colorPrimaryDark">@color/accent_indigo_light_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_indigo_light_variant</item>
+        <item name="colorAccent">@color/accent_indigo_light</item>
+        <item name="colorSecondary">@color/accent_indigo_light</item>
+        <item name="colorSecondaryVariant">@color/accent_indigo_light_variant</item>
+        <item name="colorOnPrimary">@color/accent_indigo_light_on</item>
+        <item name="colorOnSecondary">@color/accent_indigo_light_on</item>
+        <item name="colorControlActivated">@color/accent_indigo_light</item>
+        <item name="colorMaterial100">@color/accent_indigo_light_container</item>
+        <item name="colorMaterial300">@color/accent_indigo_light</item>
+        <item name="primaryOrTextPrimary">@color/accent_indigo_light</item>
+        <item name="primaryOrTextSecondary">@color/accent_indigo_light</item>
+        <item name="accentOrTextPrimary">@color/accent_indigo_light</item>
+        <item name="accentOrTextSecondary">@color/accent_indigo_light</item>
+        <item name="selectedColorPrimary">@color/accent_indigo_light</item>
+        <item name="fabColorBackground">@color/accent_indigo_light</item>
+        <item name="tabSelectedTextColor">@color/accent_indigo_light</item>
+        <item name="tabIndicatorColor">@color/accent_indigo_light</item>
+    </style>
+    <style name="ThemeOverlay.OwnBox.Accent.Indigo.Dark" parent="">
+        <item name="colorPrimary">@color/accent_indigo_dark</item>
+        <item name="colorPrimaryDark">@color/accent_indigo_dark_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_indigo_dark_variant</item>
+        <item name="colorAccent">@color/accent_indigo_dark</item>
+        <item name="colorSecondary">@color/accent_indigo_dark</item>
+        <item name="colorSecondaryVariant">@color/accent_indigo_dark_variant</item>
+        <item name="colorOnPrimary">@color/accent_indigo_dark_on</item>
+        <item name="colorOnSecondary">@color/accent_indigo_dark_on</item>
+        <item name="colorControlActivated">@color/accent_indigo_dark</item>
+        <item name="colorMaterial100">@color/accent_indigo_dark_container</item>
+        <item name="colorMaterial300">@color/accent_indigo_dark</item>
+        <item name="primaryOrTextPrimary">@color/accent_indigo_dark</item>
+        <item name="primaryOrTextSecondary">@color/accent_indigo_dark</item>
+        <item name="accentOrTextPrimary">@color/accent_indigo_dark</item>
+        <item name="accentOrTextSecondary">@color/accent_indigo_dark</item>
+        <item name="selectedColorPrimary">@color/accent_indigo_dark</item>
+        <item name="fabColorBackground">@color/accent_indigo_dark</item>
+        <item name="tabSelectedTextColor">@color/accent_indigo_dark</item>
+        <item name="tabIndicatorColor">@color/accent_indigo_dark</item>
+    </style>
+    <style name="ThemeOverlay.OwnBox.Accent.Purple" parent="">
+        <item name="colorPrimary">@color/accent_purple_light</item>
+        <item name="colorPrimaryDark">@color/accent_purple_light_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_purple_light_variant</item>
+        <item name="colorAccent">@color/accent_purple_light</item>
+        <item name="colorSecondary">@color/accent_purple_light</item>
+        <item name="colorSecondaryVariant">@color/accent_purple_light_variant</item>
+        <item name="colorOnPrimary">@color/accent_purple_light_on</item>
+        <item name="colorOnSecondary">@color/accent_purple_light_on</item>
+        <item name="colorControlActivated">@color/accent_purple_light</item>
+        <item name="colorMaterial100">@color/accent_purple_light_container</item>
+        <item name="colorMaterial300">@color/accent_purple_light</item>
+        <item name="primaryOrTextPrimary">@color/accent_purple_light</item>
+        <item name="primaryOrTextSecondary">@color/accent_purple_light</item>
+        <item name="accentOrTextPrimary">@color/accent_purple_light</item>
+        <item name="accentOrTextSecondary">@color/accent_purple_light</item>
+        <item name="selectedColorPrimary">@color/accent_purple_light</item>
+        <item name="fabColorBackground">@color/accent_purple_light</item>
+        <item name="tabSelectedTextColor">@color/accent_purple_light</item>
+        <item name="tabIndicatorColor">@color/accent_purple_light</item>
+    </style>
+    <style name="ThemeOverlay.OwnBox.Accent.Purple.Dark" parent="">
+        <item name="colorPrimary">@color/accent_purple_dark</item>
+        <item name="colorPrimaryDark">@color/accent_purple_dark_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_purple_dark_variant</item>
+        <item name="colorAccent">@color/accent_purple_dark</item>
+        <item name="colorSecondary">@color/accent_purple_dark</item>
+        <item name="colorSecondaryVariant">@color/accent_purple_dark_variant</item>
+        <item name="colorOnPrimary">@color/accent_purple_dark_on</item>
+        <item name="colorOnSecondary">@color/accent_purple_dark_on</item>
+        <item name="colorControlActivated">@color/accent_purple_dark</item>
+        <item name="colorMaterial100">@color/accent_purple_dark_container</item>
+        <item name="colorMaterial300">@color/accent_purple_dark</item>
+        <item name="primaryOrTextPrimary">@color/accent_purple_dark</item>
+        <item name="primaryOrTextSecondary">@color/accent_purple_dark</item>
+        <item name="accentOrTextPrimary">@color/accent_purple_dark</item>
+        <item name="accentOrTextSecondary">@color/accent_purple_dark</item>
+        <item name="selectedColorPrimary">@color/accent_purple_dark</item>
+        <item name="fabColorBackground">@color/accent_purple_dark</item>
+        <item name="tabSelectedTextColor">@color/accent_purple_dark</item>
+        <item name="tabIndicatorColor">@color/accent_purple_dark</item>
+    </style>
+    <style name="ThemeOverlay.OwnBox.Accent.Pink" parent="">
+        <item name="colorPrimary">@color/accent_pink_light</item>
+        <item name="colorPrimaryDark">@color/accent_pink_light_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_pink_light_variant</item>
+        <item name="colorAccent">@color/accent_pink_light</item>
+        <item name="colorSecondary">@color/accent_pink_light</item>
+        <item name="colorSecondaryVariant">@color/accent_pink_light_variant</item>
+        <item name="colorOnPrimary">@color/accent_pink_light_on</item>
+        <item name="colorOnSecondary">@color/accent_pink_light_on</item>
+        <item name="colorControlActivated">@color/accent_pink_light</item>
+        <item name="colorMaterial100">@color/accent_pink_light_container</item>
+        <item name="colorMaterial300">@color/accent_pink_light</item>
+        <item name="primaryOrTextPrimary">@color/accent_pink_light</item>
+        <item name="primaryOrTextSecondary">@color/accent_pink_light</item>
+        <item name="accentOrTextPrimary">@color/accent_pink_light</item>
+        <item name="accentOrTextSecondary">@color/accent_pink_light</item>
+        <item name="selectedColorPrimary">@color/accent_pink_light</item>
+        <item name="fabColorBackground">@color/accent_pink_light</item>
+        <item name="tabSelectedTextColor">@color/accent_pink_light</item>
+        <item name="tabIndicatorColor">@color/accent_pink_light</item>
+    </style>
+    <style name="ThemeOverlay.OwnBox.Accent.Pink.Dark" parent="">
+        <item name="colorPrimary">@color/accent_pink_dark</item>
+        <item name="colorPrimaryDark">@color/accent_pink_dark_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_pink_dark_variant</item>
+        <item name="colorAccent">@color/accent_pink_dark</item>
+        <item name="colorSecondary">@color/accent_pink_dark</item>
+        <item name="colorSecondaryVariant">@color/accent_pink_dark_variant</item>
+        <item name="colorOnPrimary">@color/accent_pink_dark_on</item>
+        <item name="colorOnSecondary">@color/accent_pink_dark_on</item>
+        <item name="colorControlActivated">@color/accent_pink_dark</item>
+        <item name="colorMaterial100">@color/accent_pink_dark_container</item>
+        <item name="colorMaterial300">@color/accent_pink_dark</item>
+        <item name="primaryOrTextPrimary">@color/accent_pink_dark</item>
+        <item name="primaryOrTextSecondary">@color/accent_pink_dark</item>
+        <item name="accentOrTextPrimary">@color/accent_pink_dark</item>
+        <item name="accentOrTextSecondary">@color/accent_pink_dark</item>
+        <item name="selectedColorPrimary">@color/accent_pink_dark</item>
+        <item name="fabColorBackground">@color/accent_pink_dark</item>
+        <item name="tabSelectedTextColor">@color/accent_pink_dark</item>
+        <item name="tabIndicatorColor">@color/accent_pink_dark</item>
+    </style>
+    <style name="ThemeOverlay.OwnBox.Accent.Red" parent="">
+        <item name="colorPrimary">@color/accent_red_light</item>
+        <item name="colorPrimaryDark">@color/accent_red_light_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_red_light_variant</item>
+        <item name="colorAccent">@color/accent_red_light</item>
+        <item name="colorSecondary">@color/accent_red_light</item>
+        <item name="colorSecondaryVariant">@color/accent_red_light_variant</item>
+        <item name="colorOnPrimary">@color/accent_red_light_on</item>
+        <item name="colorOnSecondary">@color/accent_red_light_on</item>
+        <item name="colorControlActivated">@color/accent_red_light</item>
+        <item name="colorMaterial100">@color/accent_red_light_container</item>
+        <item name="colorMaterial300">@color/accent_red_light</item>
+        <item name="primaryOrTextPrimary">@color/accent_red_light</item>
+        <item name="primaryOrTextSecondary">@color/accent_red_light</item>
+        <item name="accentOrTextPrimary">@color/accent_red_light</item>
+        <item name="accentOrTextSecondary">@color/accent_red_light</item>
+        <item name="selectedColorPrimary">@color/accent_red_light</item>
+        <item name="fabColorBackground">@color/accent_red_light</item>
+        <item name="tabSelectedTextColor">@color/accent_red_light</item>
+        <item name="tabIndicatorColor">@color/accent_red_light</item>
+    </style>
+    <style name="ThemeOverlay.OwnBox.Accent.Red.Dark" parent="">
+        <item name="colorPrimary">@color/accent_red_dark</item>
+        <item name="colorPrimaryDark">@color/accent_red_dark_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_red_dark_variant</item>
+        <item name="colorAccent">@color/accent_red_dark</item>
+        <item name="colorSecondary">@color/accent_red_dark</item>
+        <item name="colorSecondaryVariant">@color/accent_red_dark_variant</item>
+        <item name="colorOnPrimary">@color/accent_red_dark_on</item>
+        <item name="colorOnSecondary">@color/accent_red_dark_on</item>
+        <item name="colorControlActivated">@color/accent_red_dark</item>
+        <item name="colorMaterial100">@color/accent_red_dark_container</item>
+        <item name="colorMaterial300">@color/accent_red_dark</item>
+        <item name="primaryOrTextPrimary">@color/accent_red_dark</item>
+        <item name="primaryOrTextSecondary">@color/accent_red_dark</item>
+        <item name="accentOrTextPrimary">@color/accent_red_dark</item>
+        <item name="accentOrTextSecondary">@color/accent_red_dark</item>
+        <item name="selectedColorPrimary">@color/accent_red_dark</item>
+        <item name="fabColorBackground">@color/accent_red_dark</item>
+        <item name="tabSelectedTextColor">@color/accent_red_dark</item>
+        <item name="tabIndicatorColor">@color/accent_red_dark</item>
+    </style>
+    <style name="ThemeOverlay.OwnBox.Accent.Orange" parent="">
+        <item name="colorPrimary">@color/accent_orange_light</item>
+        <item name="colorPrimaryDark">@color/accent_orange_light_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_orange_light_variant</item>
+        <item name="colorAccent">@color/accent_orange_light</item>
+        <item name="colorSecondary">@color/accent_orange_light</item>
+        <item name="colorSecondaryVariant">@color/accent_orange_light_variant</item>
+        <item name="colorOnPrimary">@color/accent_orange_light_on</item>
+        <item name="colorOnSecondary">@color/accent_orange_light_on</item>
+        <item name="colorControlActivated">@color/accent_orange_light</item>
+        <item name="colorMaterial100">@color/accent_orange_light_container</item>
+        <item name="colorMaterial300">@color/accent_orange_light</item>
+        <item name="primaryOrTextPrimary">@color/accent_orange_light</item>
+        <item name="primaryOrTextSecondary">@color/accent_orange_light</item>
+        <item name="accentOrTextPrimary">@color/accent_orange_light</item>
+        <item name="accentOrTextSecondary">@color/accent_orange_light</item>
+        <item name="selectedColorPrimary">@color/accent_orange_light</item>
+        <item name="fabColorBackground">@color/accent_orange_light</item>
+        <item name="tabSelectedTextColor">@color/accent_orange_light</item>
+        <item name="tabIndicatorColor">@color/accent_orange_light</item>
+    </style>
+    <style name="ThemeOverlay.OwnBox.Accent.Orange.Dark" parent="">
+        <item name="colorPrimary">@color/accent_orange_dark</item>
+        <item name="colorPrimaryDark">@color/accent_orange_dark_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_orange_dark_variant</item>
+        <item name="colorAccent">@color/accent_orange_dark</item>
+        <item name="colorSecondary">@color/accent_orange_dark</item>
+        <item name="colorSecondaryVariant">@color/accent_orange_dark_variant</item>
+        <item name="colorOnPrimary">@color/accent_orange_dark_on</item>
+        <item name="colorOnSecondary">@color/accent_orange_dark_on</item>
+        <item name="colorControlActivated">@color/accent_orange_dark</item>
+        <item name="colorMaterial100">@color/accent_orange_dark_container</item>
+        <item name="colorMaterial300">@color/accent_orange_dark</item>
+        <item name="primaryOrTextPrimary">@color/accent_orange_dark</item>
+        <item name="primaryOrTextSecondary">@color/accent_orange_dark</item>
+        <item name="accentOrTextPrimary">@color/accent_orange_dark</item>
+        <item name="accentOrTextSecondary">@color/accent_orange_dark</item>
+        <item name="selectedColorPrimary">@color/accent_orange_dark</item>
+        <item name="fabColorBackground">@color/accent_orange_dark</item>
+        <item name="tabSelectedTextColor">@color/accent_orange_dark</item>
+        <item name="tabIndicatorColor">@color/accent_orange_dark</item>
+    </style>
+    <style name="ThemeOverlay.OwnBox.Accent.Amber" parent="">
+        <item name="colorPrimary">@color/accent_amber_light</item>
+        <item name="colorPrimaryDark">@color/accent_amber_light_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_amber_light_variant</item>
+        <item name="colorAccent">@color/accent_amber_light</item>
+        <item name="colorSecondary">@color/accent_amber_light</item>
+        <item name="colorSecondaryVariant">@color/accent_amber_light_variant</item>
+        <item name="colorOnPrimary">@color/accent_amber_light_on</item>
+        <item name="colorOnSecondary">@color/accent_amber_light_on</item>
+        <item name="colorControlActivated">@color/accent_amber_light</item>
+        <item name="colorMaterial100">@color/accent_amber_light_container</item>
+        <item name="colorMaterial300">@color/accent_amber_light</item>
+        <item name="primaryOrTextPrimary">@color/accent_amber_light</item>
+        <item name="primaryOrTextSecondary">@color/accent_amber_light</item>
+        <item name="accentOrTextPrimary">@color/accent_amber_light</item>
+        <item name="accentOrTextSecondary">@color/accent_amber_light</item>
+        <item name="selectedColorPrimary">@color/accent_amber_light</item>
+        <item name="fabColorBackground">@color/accent_amber_light</item>
+        <item name="tabSelectedTextColor">@color/accent_amber_light</item>
+        <item name="tabIndicatorColor">@color/accent_amber_light</item>
+    </style>
+    <style name="ThemeOverlay.OwnBox.Accent.Amber.Dark" parent="">
+        <item name="colorPrimary">@color/accent_amber_dark</item>
+        <item name="colorPrimaryDark">@color/accent_amber_dark_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_amber_dark_variant</item>
+        <item name="colorAccent">@color/accent_amber_dark</item>
+        <item name="colorSecondary">@color/accent_amber_dark</item>
+        <item name="colorSecondaryVariant">@color/accent_amber_dark_variant</item>
+        <item name="colorOnPrimary">@color/accent_amber_dark_on</item>
+        <item name="colorOnSecondary">@color/accent_amber_dark_on</item>
+        <item name="colorControlActivated">@color/accent_amber_dark</item>
+        <item name="colorMaterial100">@color/accent_amber_dark_container</item>
+        <item name="colorMaterial300">@color/accent_amber_dark</item>
+        <item name="primaryOrTextPrimary">@color/accent_amber_dark</item>
+        <item name="primaryOrTextSecondary">@color/accent_amber_dark</item>
+        <item name="accentOrTextPrimary">@color/accent_amber_dark</item>
+        <item name="accentOrTextSecondary">@color/accent_amber_dark</item>
+        <item name="selectedColorPrimary">@color/accent_amber_dark</item>
+        <item name="fabColorBackground">@color/accent_amber_dark</item>
+        <item name="tabSelectedTextColor">@color/accent_amber_dark</item>
+        <item name="tabIndicatorColor">@color/accent_amber_dark</item>
+    </style>
+    <style name="ThemeOverlay.OwnBox.Accent.Green" parent="">
+        <item name="colorPrimary">@color/accent_green_light</item>
+        <item name="colorPrimaryDark">@color/accent_green_light_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_green_light_variant</item>
+        <item name="colorAccent">@color/accent_green_light</item>
+        <item name="colorSecondary">@color/accent_green_light</item>
+        <item name="colorSecondaryVariant">@color/accent_green_light_variant</item>
+        <item name="colorOnPrimary">@color/accent_green_light_on</item>
+        <item name="colorOnSecondary">@color/accent_green_light_on</item>
+        <item name="colorControlActivated">@color/accent_green_light</item>
+        <item name="colorMaterial100">@color/accent_green_light_container</item>
+        <item name="colorMaterial300">@color/accent_green_light</item>
+        <item name="primaryOrTextPrimary">@color/accent_green_light</item>
+        <item name="primaryOrTextSecondary">@color/accent_green_light</item>
+        <item name="accentOrTextPrimary">@color/accent_green_light</item>
+        <item name="accentOrTextSecondary">@color/accent_green_light</item>
+        <item name="selectedColorPrimary">@color/accent_green_light</item>
+        <item name="fabColorBackground">@color/accent_green_light</item>
+        <item name="tabSelectedTextColor">@color/accent_green_light</item>
+        <item name="tabIndicatorColor">@color/accent_green_light</item>
+    </style>
+    <style name="ThemeOverlay.OwnBox.Accent.Green.Dark" parent="">
+        <item name="colorPrimary">@color/accent_green_dark</item>
+        <item name="colorPrimaryDark">@color/accent_green_dark_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_green_dark_variant</item>
+        <item name="colorAccent">@color/accent_green_dark</item>
+        <item name="colorSecondary">@color/accent_green_dark</item>
+        <item name="colorSecondaryVariant">@color/accent_green_dark_variant</item>
+        <item name="colorOnPrimary">@color/accent_green_dark_on</item>
+        <item name="colorOnSecondary">@color/accent_green_dark_on</item>
+        <item name="colorControlActivated">@color/accent_green_dark</item>
+        <item name="colorMaterial100">@color/accent_green_dark_container</item>
+        <item name="colorMaterial300">@color/accent_green_dark</item>
+        <item name="primaryOrTextPrimary">@color/accent_green_dark</item>
+        <item name="primaryOrTextSecondary">@color/accent_green_dark</item>
+        <item name="accentOrTextPrimary">@color/accent_green_dark</item>
+        <item name="accentOrTextSecondary">@color/accent_green_dark</item>
+        <item name="selectedColorPrimary">@color/accent_green_dark</item>
+        <item name="fabColorBackground">@color/accent_green_dark</item>
+        <item name="tabSelectedTextColor">@color/accent_green_dark</item>
+        <item name="tabIndicatorColor">@color/accent_green_dark</item>
+    </style>
+    <style name="ThemeOverlay.OwnBox.Accent.Teal" parent="">
+        <item name="colorPrimary">@color/accent_teal_light</item>
+        <item name="colorPrimaryDark">@color/accent_teal_light_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_teal_light_variant</item>
+        <item name="colorAccent">@color/accent_teal_light</item>
+        <item name="colorSecondary">@color/accent_teal_light</item>
+        <item name="colorSecondaryVariant">@color/accent_teal_light_variant</item>
+        <item name="colorOnPrimary">@color/accent_teal_light_on</item>
+        <item name="colorOnSecondary">@color/accent_teal_light_on</item>
+        <item name="colorControlActivated">@color/accent_teal_light</item>
+        <item name="colorMaterial100">@color/accent_teal_light_container</item>
+        <item name="colorMaterial300">@color/accent_teal_light</item>
+        <item name="primaryOrTextPrimary">@color/accent_teal_light</item>
+        <item name="primaryOrTextSecondary">@color/accent_teal_light</item>
+        <item name="accentOrTextPrimary">@color/accent_teal_light</item>
+        <item name="accentOrTextSecondary">@color/accent_teal_light</item>
+        <item name="selectedColorPrimary">@color/accent_teal_light</item>
+        <item name="fabColorBackground">@color/accent_teal_light</item>
+        <item name="tabSelectedTextColor">@color/accent_teal_light</item>
+        <item name="tabIndicatorColor">@color/accent_teal_light</item>
+    </style>
+    <style name="ThemeOverlay.OwnBox.Accent.Teal.Dark" parent="">
+        <item name="colorPrimary">@color/accent_teal_dark</item>
+        <item name="colorPrimaryDark">@color/accent_teal_dark_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_teal_dark_variant</item>
+        <item name="colorAccent">@color/accent_teal_dark</item>
+        <item name="colorSecondary">@color/accent_teal_dark</item>
+        <item name="colorSecondaryVariant">@color/accent_teal_dark_variant</item>
+        <item name="colorOnPrimary">@color/accent_teal_dark_on</item>
+        <item name="colorOnSecondary">@color/accent_teal_dark_on</item>
+        <item name="colorControlActivated">@color/accent_teal_dark</item>
+        <item name="colorMaterial100">@color/accent_teal_dark_container</item>
+        <item name="colorMaterial300">@color/accent_teal_dark</item>
+        <item name="primaryOrTextPrimary">@color/accent_teal_dark</item>
+        <item name="primaryOrTextSecondary">@color/accent_teal_dark</item>
+        <item name="accentOrTextPrimary">@color/accent_teal_dark</item>
+        <item name="accentOrTextSecondary">@color/accent_teal_dark</item>
+        <item name="selectedColorPrimary">@color/accent_teal_dark</item>
+        <item name="fabColorBackground">@color/accent_teal_dark</item>
+        <item name="tabSelectedTextColor">@color/accent_teal_dark</item>
+        <item name="tabIndicatorColor">@color/accent_teal_dark</item>
+    </style>
+    <style name="ThemeOverlay.OwnBox.Accent.Cyan" parent="">
+        <item name="colorPrimary">@color/accent_cyan_light</item>
+        <item name="colorPrimaryDark">@color/accent_cyan_light_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_cyan_light_variant</item>
+        <item name="colorAccent">@color/accent_cyan_light</item>
+        <item name="colorSecondary">@color/accent_cyan_light</item>
+        <item name="colorSecondaryVariant">@color/accent_cyan_light_variant</item>
+        <item name="colorOnPrimary">@color/accent_cyan_light_on</item>
+        <item name="colorOnSecondary">@color/accent_cyan_light_on</item>
+        <item name="colorControlActivated">@color/accent_cyan_light</item>
+        <item name="colorMaterial100">@color/accent_cyan_light_container</item>
+        <item name="colorMaterial300">@color/accent_cyan_light</item>
+        <item name="primaryOrTextPrimary">@color/accent_cyan_light</item>
+        <item name="primaryOrTextSecondary">@color/accent_cyan_light</item>
+        <item name="accentOrTextPrimary">@color/accent_cyan_light</item>
+        <item name="accentOrTextSecondary">@color/accent_cyan_light</item>
+        <item name="selectedColorPrimary">@color/accent_cyan_light</item>
+        <item name="fabColorBackground">@color/accent_cyan_light</item>
+        <item name="tabSelectedTextColor">@color/accent_cyan_light</item>
+        <item name="tabIndicatorColor">@color/accent_cyan_light</item>
+    </style>
+    <style name="ThemeOverlay.OwnBox.Accent.Cyan.Dark" parent="">
+        <item name="colorPrimary">@color/accent_cyan_dark</item>
+        <item name="colorPrimaryDark">@color/accent_cyan_dark_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_cyan_dark_variant</item>
+        <item name="colorAccent">@color/accent_cyan_dark</item>
+        <item name="colorSecondary">@color/accent_cyan_dark</item>
+        <item name="colorSecondaryVariant">@color/accent_cyan_dark_variant</item>
+        <item name="colorOnPrimary">@color/accent_cyan_dark_on</item>
+        <item name="colorOnSecondary">@color/accent_cyan_dark_on</item>
+        <item name="colorControlActivated">@color/accent_cyan_dark</item>
+        <item name="colorMaterial100">@color/accent_cyan_dark_container</item>
+        <item name="colorMaterial300">@color/accent_cyan_dark</item>
+        <item name="primaryOrTextPrimary">@color/accent_cyan_dark</item>
+        <item name="primaryOrTextSecondary">@color/accent_cyan_dark</item>
+        <item name="accentOrTextPrimary">@color/accent_cyan_dark</item>
+        <item name="accentOrTextSecondary">@color/accent_cyan_dark</item>
+        <item name="selectedColorPrimary">@color/accent_cyan_dark</item>
+        <item name="fabColorBackground">@color/accent_cyan_dark</item>
+        <item name="tabSelectedTextColor">@color/accent_cyan_dark</item>
+        <item name="tabIndicatorColor">@color/accent_cyan_dark</item>
+    </style>
+    <style name="ThemeOverlay.OwnBox.Accent.Brown" parent="">
+        <item name="colorPrimary">@color/accent_brown_light</item>
+        <item name="colorPrimaryDark">@color/accent_brown_light_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_brown_light_variant</item>
+        <item name="colorAccent">@color/accent_brown_light</item>
+        <item name="colorSecondary">@color/accent_brown_light</item>
+        <item name="colorSecondaryVariant">@color/accent_brown_light_variant</item>
+        <item name="colorOnPrimary">@color/accent_brown_light_on</item>
+        <item name="colorOnSecondary">@color/accent_brown_light_on</item>
+        <item name="colorControlActivated">@color/accent_brown_light</item>
+        <item name="colorMaterial100">@color/accent_brown_light_container</item>
+        <item name="colorMaterial300">@color/accent_brown_light</item>
+        <item name="primaryOrTextPrimary">@color/accent_brown_light</item>
+        <item name="primaryOrTextSecondary">@color/accent_brown_light</item>
+        <item name="accentOrTextPrimary">@color/accent_brown_light</item>
+        <item name="accentOrTextSecondary">@color/accent_brown_light</item>
+        <item name="selectedColorPrimary">@color/accent_brown_light</item>
+        <item name="fabColorBackground">@color/accent_brown_light</item>
+        <item name="tabSelectedTextColor">@color/accent_brown_light</item>
+        <item name="tabIndicatorColor">@color/accent_brown_light</item>
+    </style>
+    <style name="ThemeOverlay.OwnBox.Accent.Brown.Dark" parent="">
+        <item name="colorPrimary">@color/accent_brown_dark</item>
+        <item name="colorPrimaryDark">@color/accent_brown_dark_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_brown_dark_variant</item>
+        <item name="colorAccent">@color/accent_brown_dark</item>
+        <item name="colorSecondary">@color/accent_brown_dark</item>
+        <item name="colorSecondaryVariant">@color/accent_brown_dark_variant</item>
+        <item name="colorOnPrimary">@color/accent_brown_dark_on</item>
+        <item name="colorOnSecondary">@color/accent_brown_dark_on</item>
+        <item name="colorControlActivated">@color/accent_brown_dark</item>
+        <item name="colorMaterial100">@color/accent_brown_dark_container</item>
+        <item name="colorMaterial300">@color/accent_brown_dark</item>
+        <item name="primaryOrTextPrimary">@color/accent_brown_dark</item>
+        <item name="primaryOrTextSecondary">@color/accent_brown_dark</item>
+        <item name="accentOrTextPrimary">@color/accent_brown_dark</item>
+        <item name="accentOrTextSecondary">@color/accent_brown_dark</item>
+        <item name="selectedColorPrimary">@color/accent_brown_dark</item>
+        <item name="fabColorBackground">@color/accent_brown_dark</item>
+        <item name="tabSelectedTextColor">@color/accent_brown_dark</item>
+        <item name="tabIndicatorColor">@color/accent_brown_dark</item>
+    </style>
+    <style name="ThemeOverlay.OwnBox.Accent.BlueGrey" parent="">
+        <item name="colorPrimary">@color/accent_blue_grey_light</item>
+        <item name="colorPrimaryDark">@color/accent_blue_grey_light_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_blue_grey_light_variant</item>
+        <item name="colorAccent">@color/accent_blue_grey_light</item>
+        <item name="colorSecondary">@color/accent_blue_grey_light</item>
+        <item name="colorSecondaryVariant">@color/accent_blue_grey_light_variant</item>
+        <item name="colorOnPrimary">@color/accent_blue_grey_light_on</item>
+        <item name="colorOnSecondary">@color/accent_blue_grey_light_on</item>
+        <item name="colorControlActivated">@color/accent_blue_grey_light</item>
+        <item name="colorMaterial100">@color/accent_blue_grey_light_container</item>
+        <item name="colorMaterial300">@color/accent_blue_grey_light</item>
+        <item name="primaryOrTextPrimary">@color/accent_blue_grey_light</item>
+        <item name="primaryOrTextSecondary">@color/accent_blue_grey_light</item>
+        <item name="accentOrTextPrimary">@color/accent_blue_grey_light</item>
+        <item name="accentOrTextSecondary">@color/accent_blue_grey_light</item>
+        <item name="selectedColorPrimary">@color/accent_blue_grey_light</item>
+        <item name="fabColorBackground">@color/accent_blue_grey_light</item>
+        <item name="tabSelectedTextColor">@color/accent_blue_grey_light</item>
+        <item name="tabIndicatorColor">@color/accent_blue_grey_light</item>
+    </style>
+    <style name="ThemeOverlay.OwnBox.Accent.BlueGrey.Dark" parent="">
+        <item name="colorPrimary">@color/accent_blue_grey_dark</item>
+        <item name="colorPrimaryDark">@color/accent_blue_grey_dark_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_blue_grey_dark_variant</item>
+        <item name="colorAccent">@color/accent_blue_grey_dark</item>
+        <item name="colorSecondary">@color/accent_blue_grey_dark</item>
+        <item name="colorSecondaryVariant">@color/accent_blue_grey_dark_variant</item>
+        <item name="colorOnPrimary">@color/accent_blue_grey_dark_on</item>
+        <item name="colorOnSecondary">@color/accent_blue_grey_dark_on</item>
+        <item name="colorControlActivated">@color/accent_blue_grey_dark</item>
+        <item name="colorMaterial100">@color/accent_blue_grey_dark_container</item>
+        <item name="colorMaterial300">@color/accent_blue_grey_dark</item>
+        <item name="primaryOrTextPrimary">@color/accent_blue_grey_dark</item>
+        <item name="primaryOrTextSecondary">@color/accent_blue_grey_dark</item>
+        <item name="accentOrTextPrimary">@color/accent_blue_grey_dark</item>
+        <item name="accentOrTextSecondary">@color/accent_blue_grey_dark</item>
+        <item name="selectedColorPrimary">@color/accent_blue_grey_dark</item>
+        <item name="fabColorBackground">@color/accent_blue_grey_dark</item>
+        <item name="tabSelectedTextColor">@color/accent_blue_grey_dark</item>
+        <item name="tabIndicatorColor">@color/accent_blue_grey_dark</item>
+    </style>
+    <style name="ThemeOverlay.OwnBox.Accent.Custom" parent="">
+        <item name="colorPrimary">@color/accent_custom</item>
+        <item name="colorPrimaryDark">@color/accent_custom_variant</item>
+        <item name="colorPrimaryVariant">@color/accent_custom_variant</item>
+        <item name="colorAccent">@color/accent_custom</item>
+        <item name="colorSecondary">@color/accent_custom</item>
+        <item name="colorSecondaryVariant">@color/accent_custom_variant</item>
+        <item name="colorOnPrimary">@color/accent_custom_on</item>
+        <item name="colorOnSecondary">@color/accent_custom_on</item>
+        <item name="colorControlActivated">@color/accent_custom</item>
+        <item name="colorMaterial100">@color/accent_custom_container</item>
+        <item name="colorMaterial300">@color/accent_custom</item>
+        <item name="primaryOrTextPrimary">@color/accent_custom</item>
+        <item name="primaryOrTextSecondary">@color/accent_custom</item>
+        <item name="accentOrTextPrimary">@color/accent_custom</item>
+        <item name="accentOrTextSecondary">@color/accent_custom</item>
+        <item name="selectedColorPrimary">@color/accent_custom</item>
+        <item name="fabColorBackground">@color/accent_custom</item>
+        <item name="tabSelectedTextColor">@color/accent_custom</item>
+        <item name="tabIndicatorColor">@color/accent_custom</item>
+    </style>
+</resources>

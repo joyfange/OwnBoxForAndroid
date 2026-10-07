@@ -90,12 +90,7 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat(), OnPreferenceDataS
         val appTheme = findPreference<ColorPickerPreference>(Key.APP_THEME)!!
         appTheme.isEnabled = true
 
-        appTheme.setOnPreferenceChangeListener { _, newValue ->
-            DataStore.appTheme = (newValue as Number).toInt()
-            Theme.applyNightTheme()
-            activity?.recreate()
-            true
-        }
+        // ColorPickerPreference saves the base / accent selection, syncs night mode and recreates the activity itself.
 
         val nightTheme = findPreference<SimpleMenuPreference>(Key.NIGHT_THEME)!!
         nightTheme.setOnPreferenceChangeListener { _, newTheme ->
