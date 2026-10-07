@@ -19,4 +19,8 @@ data class SpeedDisplayData(
     // Bytes for the current session through the direct ("bypass") outbound
     var txTotalDirect: Long = 0L,
     var rxTotalDirect: Long = 0L,
+
+    // Profile id of the node a strategy group currently routes through (ActiveOutboundTracker, the same source the
+    // notification title uses); for a plain node its own id, 0 when unknown.
+    var activeLeafId: Long = 0L,
 ) : Parcelable

@@ -4,6 +4,7 @@ import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.ktx.USER_AGENT
 import io.nekohasekai.sagernet.ktx.tryProxyOutbound
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -58,7 +59,15 @@ object LandingIpManager {
     @Volatile
     private var isQuerying: Boolean = false
 
+    /**
+     * Bumped by every forced query and by [clearCache]: a slower, older lookup (e.g. one started before the
+     * strategy group settled on its node) must not overwrite the result of a newer one.
+     */
+    @Volatile
+    private var generation: Int = 0
+
     fun clearCache() {
+        generation++
         currentCache = null
         cachedProfileId = -1L
     }
@@ -376,6 +385,7 @@ object LandingIpManager {
 
         val now = System.currentTimeMillis()
         if (forceRefresh) {
+            generation++
             currentCache = null
             cachedProfileId = -1L
         } else {
@@ -387,6 +397,15 @@ object LandingIpManager {
 
         if (isQuerying && !forceRefresh) {
             currentCache?.let { return@withContext Result.success(it) }
+        }
+
+        val myGeneration = generation
+        fun publish(info: LandingIpInfo): Boolean {
+            if (myGeneration != generation) return false
+            currentCache = info
+            cachedProfileId = profileId
+            onUpdate?.invoke(info)
+            return true
         }
 
         isQuerying = true
@@ -433,25 +452,19 @@ object LandingIpManager {
                         val isDetailed = received.isp.isNotBlank() && received.isp != "Cloudflare Edge"
                         if (isDetailed) {
                             winningInfo = received
-                            currentCache = received
-                            cachedProfileId = profileId
-                            onUpdate?.invoke(received)
+                            publish(received)
                             break
                         } else {
                             if (winningInfo == null) {
                                 winningInfo = received
-                                currentCache = received
-                                cachedProfileId = profileId
-                                onUpdate?.invoke(received)
+                                publish(received)
                             }
                             // 毫秒级等待是否有更高精度全量详细信息返回（如运营商/城市）
                             val detailedRemaining = 600L.coerceAtMost(deadline - System.currentTimeMillis())
                             val second = withTimeoutOrNull(detailedRemaining) { resultChannel.receiveCatching().getOrNull() }
                             if (second != null && second.isp.isNotBlank() && second.isp != "Cloudflare Edge") {
                                 winningInfo = second
-                                currentCache = second
-                                cachedProfileId = profileId
-                                onUpdate?.invoke(second)
+                                publish(second)
                             }
                             break
                         }
@@ -459,13 +472,14 @@ object LandingIpManager {
                         break
                     }
                 }
+                // Stop the remaining lookups: their results are no longer used.
+                coroutineContext.cancelChildren()
 
-                if (winningInfo != null) {
-                    currentCache = winningInfo
-                    cachedProfileId = profileId
-                    Result.success(winningInfo)
-                } else {
-                    Result.failure(Exception("无法获取落地 IP 信息"))
+                when {
+                    winningInfo == null -> Result.failure(Exception("无法获取落地 IP 信息"))
+                    myGeneration != generation -> currentCache?.let { Result.success(it) }
+                        ?: Result.failure(Exception("落地 IP 查询已被更新的查询取代"))
+                    else -> Result.success(winningInfo)
                 }
             }
         } catch (e: Throwable) {

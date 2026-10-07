@@ -670,6 +670,7 @@ class MainActivity : ThemedActivity(),
     // ONLY do UI update here, write DB in bg process
     override fun cbSpeedUpdate(stats: SpeedDisplayData) {
         binding.stats.updateSpeed(stats.txRateProxy, stats.rxRateProxy)
+        binding.stats.onActiveLeafUpdate(stats.activeLeafId)
     }
 
     override suspend fun cbTrafficUpdate(data: TrafficDataBatch) {

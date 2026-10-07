@@ -393,6 +393,53 @@ class StatsBar @JvmOverloads constructor(
         return pendingTransition == Transition.HideAfterStart || transitionJob != null
     }
 
+    /**
+     * The node the service currently routes through (from ActiveOutboundTracker via the speed callback, the same
+     * source as the notification title) and the selected profile it belongs to. A strategy group starts on its
+     * first member and only settles after its URL test, so the landing IP is keyed by this node, not by the group.
+     */
+    private var activeLeafId: Long = 0L
+    private var activeLeafOwner: Long = 0L
+    private var leafRefreshJob: Job? = null
+
+    private fun landingKey(): Long {
+        val selected = DataStore.selectedProxy
+        return if (activeLeafId > 0L && activeLeafOwner == selected) activeLeafId else selected
+    }
+
+    private fun resetActiveLeaf() {
+        activeLeafId = 0L
+        activeLeafOwner = 0L
+        leafRefreshJob?.cancel()
+        leafRefreshJob = null
+    }
+
+    /** Called with every speed update; re-queries the landing IP when the routed node changes. */
+    fun onActiveLeafUpdate(leafId: Long) {
+        runOnUi {
+            if (leafId <= 0L) return@runOnUi
+            val selected = DataStore.selectedProxy
+            if (leafId == activeLeafId && activeLeafOwner == selected) return@runOnUi
+            activeLeafId = leafId
+            activeLeafOwner = selected
+            if (currentState != BaseService.State.Connected || !DataStore.showLandingIp) return@runOnUi
+            if (LandingIpManager.cachedProfileId == leafId && LandingIpManager.getCachedInfo() != null) {
+                updateStatusViews()
+                return@runOnUi
+            }
+            // Give the group a moment to move its connections to the new node before looking up the exit IP.
+            leafRefreshJob?.cancel()
+            val scope = (context as? MainActivity)?.lifecycleScope ?: return@runOnUi
+            leafRefreshJob = scope.launch(Dispatchers.Main) {
+                delay(1200L)
+                leafRefreshJob = null
+                if (currentState == BaseService.State.Connected && landingKey() == leafId) {
+                    refreshLandingIp(forceRefresh = true)
+                }
+            }
+        }
+    }
+
     private var lastMeasuredLatency: Int = -1
     private var lastMeasureTime: Long = 0L
     private var isTestingRealLatency = false
@@ -424,7 +471,7 @@ class StatsBar @JvmOverloads constructor(
                     statusIpText.text = context.getString(R.string.landing_ip_querying)
                     statusIpText.visibility = View.VISIBLE
                 } else if (DataStore.showLandingIp) {
-                    statusIpText.text = LandingIpManager.getProfileFallbackDisplay(DataStore.selectedProxy)
+                    statusIpText.text = LandingIpManager.getProfileFallbackDisplay(landingKey())
                     statusIpText.visibility = View.VISIBLE
                 } else {
                     statusIpText.visibility = View.GONE
@@ -491,6 +538,7 @@ class StatsBar @JvmOverloads constructor(
             } else {
                 btnIpDetail?.visibility = View.GONE
                 resetLatencyState()
+                resetActiveLeaf()
                 LandingIpManager.clearCache()
                 updateSpeed(0, 0)
                 updateStatusViews()
@@ -506,7 +554,7 @@ class StatsBar @JvmOverloads constructor(
                 updateStatusViews()
                 return@runOnUi
             }
-            val currentProfile = DataStore.selectedProxy
+            val currentProfile = landingKey()
             val cached = LandingIpManager.getCachedInfo()
             if (!forceRefresh && cached != null && LandingIpManager.cachedProfileId == currentProfile) {
                 btnIpDetail?.visibility = View.VISIBLE

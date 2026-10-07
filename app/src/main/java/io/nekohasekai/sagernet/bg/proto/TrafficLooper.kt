@@ -327,6 +327,7 @@ class TrafficLooper
                         mainRx,
                         txTotalDirect = itemBypass.tx - itemBypass.txBase,
                         rxTotalDirect = itemBypass.rx - itemBypass.rxBase,
+                        activeLeafId = ActiveOutboundTracker.activeLeafProfileId,
                     ),
                     trafficUpdates = trafficUpdates,
                 )
