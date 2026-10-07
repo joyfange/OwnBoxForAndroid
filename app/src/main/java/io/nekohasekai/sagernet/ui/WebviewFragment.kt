@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.MenuItem
@@ -30,7 +31,10 @@ import io.nekohasekai.sagernet.databinding.LayoutWebviewBinding
 import io.nekohasekai.sagernet.ktx.Logs
 import io.nekohasekai.sagernet.ui.dashboard.DashboardItem
 import io.nekohasekai.sagernet.ui.dashboard.DashboardManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import moe.matsuri.nb4a.utils.WebViewUtil
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -83,6 +87,9 @@ class WebviewFragment : ToolbarFragment(R.layout.layout_webview), Toolbar.OnMenu
             // 允许 HTTPS 外部面板（如 https://board.zash.run.place/）安全请求本地 HTTP Clash API（http://127.0.0.1:9090）
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             cacheMode = WebSettings.LOAD_DEFAULT
+            useWideViewPort = true
+            loadWithOverviewMode = true
+            javaScriptCanOpenWindowsAutomatically = true
         }
         mWebView.webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
@@ -124,10 +131,10 @@ class WebviewFragment : ToolbarFragment(R.layout.layout_webview), Toolbar.OnMenu
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 if (url != null) {
-                    if (url.contains("zash") || url.contains("run.place") || url.contains("board")) {
-                        injectZashboardAutoConnect(view)
-                    } else if (url.contains("metacubex") || url.contains("metacubexd")) {
-                        injectMetaCubeXDAutoConnect(view)
+                    when (dashboardKind(url)) {
+                        DashboardKind.ZASHBOARD -> injectZashboardAutoConnect(view)
+                        DashboardKind.METACUBEXD -> injectMetaCubeXDAutoConnect(view)
+                        else -> Unit
                     }
                 }
             }
@@ -378,23 +385,77 @@ class WebviewFragment : ToolbarFragment(R.layout.layout_webview), Toolbar.OnMenu
         view?.evaluateJavascript(js, null)
     }
 
-    private fun buildEffectiveDashboardUrl(url: String): String {
-        val secret = DataStore.clashApiSecret
-        val normalized = runCatching { DashboardManager.normalizeUrl(url) }.getOrDefault(url)
+    /** Which setup convention a dashboard understands for receiving the controller address and secret. */
+    private enum class DashboardKind { LOCAL, ZASHBOARD, METACUBEXD, YACD, OTHER }
+
+    private fun dashboardKind(url: String): DashboardKind {
+        if (LocalYacdDashboard.isLocalDocument(url)) return DashboardKind.LOCAL
+        val parsed = url.toHttpUrlOrNull()
+        val hostAndPath = (parsed?.let { it.host + it.encodedPath } ?: url).lowercase(java.util.Locale.ROOT)
         return when {
-            normalized.startsWith("https://board.zash.run.place/#/setup") -> DashboardManager.PRESET_ZASHBOARD_URL
-            (normalized.contains("metacubex") || normalized.contains("metacubexd")) && !normalized.contains("hostname=") -> {
-                val clean = normalized.trimEnd('/')
-                "$clean/#/setup?hostname=127.0.0.1&port=9090&secret=$secret&http=true"
-            }
-            else -> normalized
+            // yacd / Yacd-meta (e.g. https://yacd.metacubex.one/) must be checked before metacubexd: its host also
+            // contains "metacubex", which used to route it to metacubexd's "#/setup?…" URL. Yacd has no "/setup"
+            // route, so the first open rendered only its icon bar with a blank content area.
+            hostAndPath.contains("yacd") -> DashboardKind.YACD
+            hostAndPath.contains("metacubexd") || hostAndPath.startsWith("d.metacubex.one") -> DashboardKind.METACUBEXD
+            hostAndPath.contains("zash") -> DashboardKind.ZASHBOARD
+            else -> DashboardKind.OTHER
         }
     }
 
+    private fun buildEffectiveDashboardUrl(url: String): String {
+        val secret = DataStore.clashApiSecret
+        val normalized = runCatching { DashboardManager.normalizeUrl(url) }.getOrDefault(url)
+        if (normalized.startsWith("https://board.zash.run.place/#/setup")) return DashboardManager.PRESET_ZASHBOARD_URL
+        // A URL that already carries controller parameters is used exactly as the user entered it.
+        if (normalized.contains("hostname=")) return normalized
+        val parsed = normalized.toHttpUrlOrNull() ?: return normalized
+        return when (dashboardKind(normalized)) {
+            DashboardKind.LOCAL, DashboardKind.ZASHBOARD -> normalized
+            DashboardKind.METACUBEXD -> {
+                // metacubexd reads the backend from its hash route: #/setup?hostname=&port=&secret=
+                val clean = normalized.substringBefore('#').trimEnd('/')
+                "$clean/#/setup?hostname=127.0.0.1&port=9090&secret=${Uri.encode(secret)}&http=true"
+            }
+            DashboardKind.YACD, DashboardKind.OTHER -> {
+                // yacd (and most clash dashboards) read ?hostname=&port=&secret= from the query string before the
+                // hash. Drop a stale "#/setup" fragment, which is not a yacd route.
+                val builder = parsed.newBuilder()
+                    .setQueryParameter("hostname", "127.0.0.1")
+                    .setQueryParameter("port", "9090")
+                if (secret.isNotEmpty()) builder.setQueryParameter("secret", secret)
+                val fragment = parsed.fragment
+                if (fragment != null && fragment.trimStart('/').startsWith("setup")) builder.fragment(null)
+                builder.build().toString()
+            }
+        }
+    }
+
+    private var loadGeneration = 0
+
     private fun loadDashboard(url: String) {
         val targetUrl = buildEffectiveDashboardUrl(url)
-        mWebView.loadUrl(targetUrl)
         updateToolbarSubtitle()
+        val generation = ++loadGeneration
+        if (dashboardKind(targetUrl) == DashboardKind.LOCAL || !DataStore.serviceState.connected ||
+            !(DataStore.enableClashAPI || DataStore.allowAccess)
+        ) {
+            mWebView.loadUrl(targetUrl)
+            return
+        }
+        // External dashboards talk to 127.0.0.1:9090 straight from the page. Right after the service (re)starts the
+        // controller may not answer yet; a dashboard that fails its first API call often never recovers, so wait
+        // briefly (≤ ~4 s) for the controller before loading the page.
+        val secret = DataStore.clashApiSecret
+        viewLifecycleOwner.lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                repeat(8) {
+                    if (LocalYacdDashboard.checkApi(dashboardClient, secret) == null) return@withContext
+                    delay(500)
+                }
+            }
+            if (generation == loadGeneration && ::mWebView.isInitialized) mWebView.loadUrl(targetUrl)
+        }
     }
 
     override fun onBackPressed(): Boolean {
