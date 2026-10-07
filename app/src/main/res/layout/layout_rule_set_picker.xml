@@ -3,19 +3,26 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="?android:attr/colorBackground">
 
+    <!-- Same surface as layout_appbar (follows Black / White / LightGray themes); colorPrimary is white in the
+         black theme, which painted the status bar / toolbar / header area white. -->
     <com.google.android.material.appbar.AppBarLayout
         android:id="@+id/appbar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="?attr/colorPrimary">
+        android:background="?attr/colorSurface"
+        app:elevation="0dp">
 
         <!-- No scroll flags: the toolbar and the header form one fixed title block (like the home screen). -->
         <com.google.android.material.appbar.CollapsingToolbarLayout
             android:id="@+id/collapsing"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:background="@android:color/transparent"
+            app:contentScrim="@android:color/transparent"
+            app:statusBarScrim="@android:color/transparent"
             app:titleEnabled="false">
 
             <LinearLayout
@@ -70,12 +77,15 @@
                 android:id="@+id/toolbar"
                 android:layout_width="match_parent"
                 android:layout_height="?attr/actionBarSize"
-                android:background="?attr/colorPrimary"
+                android:background="@android:color/transparent"
                 android:elevation="0dp"
                 android:theme="?actionBarTheme"
                 android:touchscreenBlocksFocus="false"
                 app:layout_collapseMode="pin"
-                app:popupTheme="@style/ThemeOverlay.AppCompat.DayNight"
+                app:navigationIconTint="?android:attr/textColorPrimary"
+                app:popupTheme="?attr/actionBarPopupTheme"
+                app:subtitleTextColor="?android:attr/textColorSecondary"
+                app:titleTextColor="?android:attr/textColorPrimary"
                 app:title="@string/rule_set_picker_title" />
         </com.google.android.material.appbar.CollapsingToolbarLayout>
 
