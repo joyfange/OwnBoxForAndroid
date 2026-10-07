@@ -45,6 +45,20 @@ object Theme {
     const val VERDANT_MINT = 22
     const val WHITE = 23
     const val LIGHT_GRAY = 24
+
+    // Extra base themes (theme colour dialog). Ids are new so old saved values never collide with them.
+    const val MIDNIGHT = 30
+    const val GRAPHITE = 31
+    const val MOCHA = 32
+    const val FOREST = 33
+    const val CREAM = 34
+    const val MINT = 35
+    const val SKY = 36
+    const val SAKURA = 37
+    const val LAVENDER = 38
+
+    /** Base theme with a user-picked background colour ([DataStore.baseCustomColor]). */
+    const val CUSTOM_BASE = 98
     const val CUSTOM = 99
 
     /** No accent: keep the base theme's own (monochrome) primary colour. */
@@ -78,6 +92,190 @@ object Theme {
         Accent(BLUE_GREY, R.string.accent_blue_grey, R.style.ThemeOverlay_OwnBox_Accent_BlueGrey, R.style.ThemeOverlay_OwnBox_Accent_BlueGrey_Dark, R.color.accent_blue_grey_light, R.color.accent_blue_grey_dark),
     )
 
+
+    /**
+     * A base theme: background, surfaces and text. [dark] bases extend the black theme, light ones the light gray
+     * theme. Colours are colour resources so the dialog previews and the code-side palette match the XML styles.
+     */
+    class Base(
+        val id: Int,
+        @StringRes val title: Int,
+        val dark: Boolean,
+        @StyleRes val style: Int,
+        @StyleRes val dialogStyle: Int,
+        @androidx.annotation.ColorRes val background: Int,
+        @androidx.annotation.ColorRes val card: Int,
+        @androidx.annotation.ColorRes val textPrimary: Int,
+        @androidx.annotation.ColorRes val textSecondary: Int,
+        @androidx.annotation.ColorRes val primary: Int,
+        @androidx.annotation.ColorRes val fab: Int,
+    )
+
+    val BASES = listOf(
+        Base(WHITE, R.string.base_white, false, R.style.Theme_SagerNet_White, R.style.Theme_SagerNet_Dialog_White,
+            R.color.color_white_theme_bg, R.color.color_white_theme_surface, R.color.color_white_theme_text_primary,
+            R.color.color_white_theme_tab_unselected, R.color.color_white_theme_accent, R.color.color_white_theme_accent),
+        Base(LIGHT_GRAY, R.string.base_light_gray, false, R.style.Theme_SagerNet_LightGray, R.style.Theme_SagerNet_Dialog_LightGray,
+            R.color.color_light_gray_bg, R.color.color_light_gray_surface, R.color.color_light_gray_text_primary,
+            R.color.color_light_gray_text_secondary, R.color.color_light_gray_primary, R.color.color_light_gray_primary),
+        Base(CREAM, R.string.base_cream, false, R.style.Theme_SagerNet_BaseCream, R.style.Theme_SagerNet_Dialog_BaseCream,
+            R.color.base_cream_bg, R.color.base_cream_card, R.color.base_cream_text_primary,
+            R.color.base_cream_text_secondary, R.color.base_cream_primary, R.color.base_cream_primary),
+        Base(MINT, R.string.base_mint, false, R.style.Theme_SagerNet_BaseMint, R.style.Theme_SagerNet_Dialog_BaseMint,
+            R.color.base_mint_bg, R.color.base_mint_card, R.color.base_mint_text_primary,
+            R.color.base_mint_text_secondary, R.color.base_mint_primary, R.color.base_mint_primary),
+        Base(SKY, R.string.base_sky, false, R.style.Theme_SagerNet_BaseSky, R.style.Theme_SagerNet_Dialog_BaseSky,
+            R.color.base_sky_bg, R.color.base_sky_card, R.color.base_sky_text_primary,
+            R.color.base_sky_text_secondary, R.color.base_sky_primary, R.color.base_sky_primary),
+        Base(SAKURA, R.string.base_sakura, false, R.style.Theme_SagerNet_BaseSakura, R.style.Theme_SagerNet_Dialog_BaseSakura,
+            R.color.base_sakura_bg, R.color.base_sakura_card, R.color.base_sakura_text_primary,
+            R.color.base_sakura_text_secondary, R.color.base_sakura_primary, R.color.base_sakura_primary),
+        Base(LAVENDER, R.string.base_lavender, false, R.style.Theme_SagerNet_BaseLavender, R.style.Theme_SagerNet_Dialog_BaseLavender,
+            R.color.base_lavender_bg, R.color.base_lavender_card, R.color.base_lavender_text_primary,
+            R.color.base_lavender_text_secondary, R.color.base_lavender_primary, R.color.base_lavender_primary),
+        Base(BLACK, R.string.base_black, true, R.style.Theme_SagerNet_Black, R.style.Theme_SagerNet_Dialog_Black,
+            R.color.color_black_theme_bg, R.color.color_black_theme_card_elevated, R.color.color_black_theme_text_primary,
+            R.color.color_black_theme_text_secondary, R.color.color_black_theme_primary, R.color.black),
+        Base(GRAPHITE, R.string.base_graphite, true, R.style.Theme_SagerNet_BaseGraphite, R.style.Theme_SagerNet_Dialog_BaseGraphite,
+            R.color.base_graphite_bg, R.color.base_graphite_card, R.color.base_graphite_text_primary,
+            R.color.base_graphite_text_secondary, R.color.base_graphite_primary, R.color.base_graphite_material_300),
+        Base(MIDNIGHT, R.string.base_midnight, true, R.style.Theme_SagerNet_BaseMidnight, R.style.Theme_SagerNet_Dialog_BaseMidnight,
+            R.color.base_midnight_bg, R.color.base_midnight_card, R.color.base_midnight_text_primary,
+            R.color.base_midnight_text_secondary, R.color.base_midnight_primary, R.color.base_midnight_primary),
+        Base(FOREST, R.string.base_forest, true, R.style.Theme_SagerNet_BaseForest, R.style.Theme_SagerNet_Dialog_BaseForest,
+            R.color.base_forest_bg, R.color.base_forest_card, R.color.base_forest_text_primary,
+            R.color.base_forest_text_secondary, R.color.base_forest_primary, R.color.base_forest_primary),
+        Base(MOCHA, R.string.base_mocha, true, R.style.Theme_SagerNet_BaseMocha, R.style.Theme_SagerNet_Dialog_BaseMocha,
+            R.color.base_mocha_bg, R.color.base_mocha_card, R.color.base_mocha_text_primary,
+            R.color.base_mocha_text_secondary, R.color.base_mocha_primary, R.color.base_mocha_primary),
+    )
+
+    fun baseOf(id: Int): Base? = BASES.firstOrNull { it.id == id }
+
+    /** True for every value the theme colour dialog can save as the base ([DataStore.appTheme]). */
+    fun isBaseTheme(id: Int): Boolean = id == CUSTOM_BASE || baseOf(id) != null
+
+    /** The colours the code paints with (app bar, tabs, stats bar, search field, FAB) for the base on screen. */
+    class Palette(
+        val id: Int,
+        val dark: Boolean,
+        @ColorInt val background: Int,
+        @ColorInt val card: Int,
+        @ColorInt val textPrimary: Int,
+        @ColorInt val textSecondary: Int,
+        @ColorInt val primary: Int,
+        @ColorInt val fab: Int,
+    )
+
+    private fun isDarkColor(@ColorInt color: Int) = ColorUtils.calculateLuminance(color or 0xFF000000.toInt()) < 0.3
+
+    fun isCustomBaseDark(): Boolean = isDarkColor(DataStore.baseCustomColor)
+
+    private fun isDarkBaseId(id: Int): Boolean = when (id) {
+        CUSTOM_BASE -> isCustomBaseDark()
+        else -> baseOf(id)?.dark ?: false
+    }
+
+    /** The preset whose background is closest to [color] (custom base fallback below Android 11). */
+    fun closestBase(context: Context, @ColorInt color: Int): Base {
+        val dark = isDarkColor(color)
+        return BASES.filter { it.dark == dark }.minByOrNull {
+            val c = ContextCompat.getColor(context, it.background)
+            val dr = Color.red(c) - Color.red(color)
+            val dg = Color.green(c) - Color.green(color)
+            val db = Color.blue(c) - Color.blue(color)
+            dr * dr + dg * dg + db * db
+        } ?: BASES.first()
+    }
+
+    /** Selected base, legacy / unknown values mapped to light gray (never writes the store). */
+    fun selectedBaseId(): Int = DataStore.appTheme.let { if (isBaseTheme(it)) it else LIGHT_GRAY }
+
+    /**
+     * The base actually on screen: night mode keeps a dark base and shows black instead of a light one; the custom
+     * base needs Android 11+ (colour resource overrides), below that its closest preset is shown.
+     */
+    fun currentBaseId(context: Context = app): Int {
+        var id = selectedBaseId()
+        if (id == CUSTOM_BASE && !OwnBoxColorOverrides.isAvailable()) {
+            id = closestBase(context, DataStore.baseCustomColor).id
+        }
+        if (usingNightMode(context) && !isDarkBaseId(id)) id = BLACK
+        return id
+    }
+
+    /** Colours for the custom base's colour resources (R.color.base_custom_*), derived from the picked background. */
+    fun customBaseColors(@ColorInt picked: Int): Map<Int, Int> {
+        val bg = picked or 0xFF000000.toInt()
+        val dark = isDarkColor(bg)
+        val hsl = FloatArray(3)
+        ColorUtils.colorToHSL(bg, hsl)
+        val greyish = hsl[1] < 0.12f
+        val primary = if (dark) {
+            if (greyish) Color.parseColor("#E0E0E0") else ColorUtils.HSLToColor(floatArrayOf(hsl[0], hsl[1].coerceIn(0.45f, 0.75f), 0.74f))
+        } else {
+            if (greyish) Color.parseColor("#1F2937") else ColorUtils.HSLToColor(floatArrayOf(hsl[0], hsl[1].coerceIn(0.45f, 0.7f), 0.38f))
+        }
+        val lift = if (dark) Color.WHITE else Color.BLACK
+        val surface = if (dark) ColorUtils.blendARGB(bg, Color.WHITE, 0.05f) else ColorUtils.blendARGB(bg, Color.WHITE, 0.75f)
+        val card = if (dark) ColorUtils.blendARGB(bg, Color.WHITE, 0.08f) else surface
+        val textPrimary = if (dark) ColorUtils.blendARGB(Color.WHITE, bg, 0.06f) else ColorUtils.blendARGB(Color.BLACK, bg, 0.14f)
+        val textSecondary = if (dark) ColorUtils.blendARGB(Color.WHITE, bg, 0.36f) else ColorUtils.blendARGB(Color.BLACK, bg, 0.48f)
+        val onPrimary = if (ColorUtils.calculateContrast(Color.WHITE, primary) >= 3.0) Color.WHITE else bg.let {
+            if (dark) it else Color.BLACK
+        }
+        return mapOf(
+            R.color.base_custom_bg to bg,
+            R.color.base_custom_surface to surface,
+            R.color.base_custom_card to card,
+            R.color.base_custom_text_primary to textPrimary,
+            R.color.base_custom_text_secondary to textSecondary,
+            R.color.base_custom_primary to primary,
+            R.color.base_custom_primary_dark to bg,
+            R.color.base_custom_material_100 to ColorUtils.blendARGB(bg, lift, if (dark) 0.07f else 0.03f),
+            R.color.base_custom_material_300 to ColorUtils.blendARGB(bg, lift, if (dark) 0.14f else 0.08f),
+            R.color.base_custom_item_shape to ColorUtils.blendARGB(bg, lift, if (dark) 0.11f else 0.06f),
+            R.color.base_custom_tab_unselected to textSecondary,
+            R.color.base_custom_ripple to ColorUtils.setAlphaComponent(primary, if (dark) 0x33 else 0x1A),
+            R.color.base_custom_on_primary to onPrimary,
+        )
+    }
+
+    fun palette(context: Context = app): Palette {
+        val id = currentBaseId(context)
+        if (id == CUSTOM_BASE) {
+            val c = customBaseColors(DataStore.baseCustomColor)
+            val dark = isCustomBaseDark()
+            val primary = c.getValue(R.color.base_custom_primary)
+            return Palette(
+                id, dark, c.getValue(R.color.base_custom_bg), c.getValue(R.color.base_custom_card),
+                c.getValue(R.color.base_custom_text_primary), c.getValue(R.color.base_custom_text_secondary),
+                primary, primary,
+            )
+        }
+        val base = baseOf(id) ?: baseOf(LIGHT_GRAY)!!
+        fun col(res: Int) = ContextCompat.getColor(context, res)
+        return Palette(
+            base.id, base.dark, col(base.background), col(base.card), col(base.textPrimary),
+            col(base.textSecondary), col(base.primary), col(base.fab),
+        )
+    }
+
+    /**
+     * Stats bar colour: the base's raised surface with a soft wash of the accent (or of the base's own primary on the
+     * tinted bases), so the bar, the FAB cradle and the gesture-bar area read as one coloured surface.
+     */
+    @ColorInt
+    fun statsBarColor(context: Context): Int {
+        val p = palette(context)
+        val tint = accentColor(context) ?: if (p.id == BLACK || p.id == WHITE || p.id == LIGHT_GRAY) null else p.primary
+        val surface = if (p.dark) ColorUtils.blendARGB(p.background, Color.WHITE, 0.07f) else p.card
+        if (tint == null) {
+            return if (p.dark) surface else if (p.id == WHITE) Color.WHITE else p.background
+        }
+        return ColorUtils.blendARGB(surface, tint or 0xFF000000.toInt(), if (p.dark) 0.20f else 0.13f)
+    }
+
     fun accentOf(id: Int): Accent? = ACCENTS.firstOrNull { it.id == id }
 
     /** The preset whose light colour has the closest hue (custom colour fallback below Android 11). */
@@ -109,22 +307,19 @@ object Theme {
     }
 
     /**
-     * Applies the selected accent on top of the base theme already set on [context]. The custom colour is installed
-     * by overriding the custom accent's colour resources (Android 11+, activities only); elsewhere the closest preset
-     * is used instead.
+     * Applies the selected accent on top of the base theme already set on [context]. [customInstalled] tells whether
+     * the custom accent's colour resources were overridden (Android 11+, activities only); otherwise the closest
+     * preset stands in for the custom colour.
      */
-    fun applyAccent(context: Context) {
+    fun applyAccent(context: Context, customInstalled: Boolean = false) {
         val dark = isBlackTheme(context)
         when (val id = DataStore.accentTheme) {
             ACCENT_NONE -> return
             CUSTOM -> {
-                val color = DataStore.accentCustomColor
-                val installed = context is android.app.Activity &&
-                        OwnBoxColorOverrides.apply(context, customAccentColors(color, dark))
-                if (installed) {
+                if (customInstalled) {
                     context.theme.applyStyle(R.style.ThemeOverlay_OwnBox_Accent_Custom, true)
                 } else {
-                    val preset = closestAccent(context, color)
+                    val preset = closestAccent(context, DataStore.accentCustomColor)
                     context.theme.applyStyle(if (dark) preset.dark else preset.light, true)
                 }
             }
@@ -141,9 +336,15 @@ object Theme {
     fun accentColor(context: Context): Int? {
         val id = DataStore.accentTheme
         if (id == ACCENT_NONE) return null
-        if (id == CUSTOM) return context.getColorAttr(R.attr.colorPrimary)
+        val dark = isBlackTheme(context)
+        if (id == CUSTOM) {
+            val color = DataStore.accentCustomColor or 0xFF000000.toInt()
+            if (OwnBoxColorOverrides.isAvailable()) return color
+            val preset = closestAccent(context, color)
+            return ContextCompat.getColor(context, if (dark) preset.darkColor else preset.lightColor)
+        }
         val accent = accentOf(id) ?: return null
-        return ContextCompat.getColor(context, if (isBlackTheme(context)) accent.darkColor else accent.lightColor)
+        return ContextCompat.getColor(context, if (dark) accent.darkColor else accent.lightColor)
     }
 
     private fun defaultTheme() = LIGHT_GRAY
@@ -180,83 +381,47 @@ object Theme {
         return null
     }
 
-    fun apply(context: Context) {
-        context.setTheme(getTheme(context))
-        applyAccent(context)
-        if (!isWhiteTheme(context) && !isLightGrayTheme(context) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && DataStore.useSystemTheme && context is android.app.Activity) {
-            com.google.android.material.color.DynamicColors.applyIfAvailable(context)
+    private fun applyInternal(context: Context, dialog: Boolean) {
+        val baseId = currentBaseId(context)
+        // One resources loader for every runtime colour (custom base + custom accent); activities only.
+        val overrides = HashMap<Int, Int>()
+        if (baseId == CUSTOM_BASE) overrides.putAll(customBaseColors(DataStore.baseCustomColor))
+        if (DataStore.accentTheme == CUSTOM) {
+            overrides.putAll(customAccentColors(DataStore.accentCustomColor, isDarkBaseId(baseId)))
         }
+        val installed = overrides.isNotEmpty() && context is android.app.Activity &&
+                OwnBoxColorOverrides.apply(context, overrides)
+        val effectiveBase = if (baseId == CUSTOM_BASE && !installed) {
+            closestBase(context, DataStore.baseCustomColor).id
+        } else baseId
+        context.setTheme(styleOf(effectiveBase, dialog))
+        applyAccent(context, installed)
     }
 
-    fun applyDialog(context: Context) {
-        context.setTheme(getDialogTheme(context))
-        applyAccent(context)
-        if (!isWhiteTheme(context) && !isLightGrayTheme(context) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && DataStore.useSystemTheme && context is android.app.Activity) {
-            com.google.android.material.color.DynamicColors.applyIfAvailable(context)
-        }
-    }
+    fun apply(context: Context) = applyInternal(context, false)
 
-    fun getTheme(context: Context = app): Int {
-        if (usingNightMode(context)) {
-            return R.style.Theme_SagerNet_Black
-        }
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && DataStore.useSystemTheme) {
-            val wallpaperColor = getSystemWallpaperColor(context)
-            if (wallpaperColor != null) {
-                val closest = getClosestThemeForColor(wallpaperColor)
-                if (closest == WHITE) R.style.Theme_SagerNet_White else getTheme(closest)
+    fun applyDialog(context: Context) = applyInternal(context, true)
+
+    @StyleRes
+    private fun styleOf(id: Int, dialog: Boolean): Int {
+        if (id == CUSTOM_BASE) {
+            return if (isCustomBaseDark()) {
+                if (dialog) R.style.Theme_SagerNet_Dialog_BaseCustom else R.style.Theme_SagerNet_BaseCustom
             } else {
-                getTheme(MONET)
+                if (dialog) R.style.Theme_SagerNet_Dialog_BaseCustomLight else R.style.Theme_SagerNet_BaseCustomLight
             }
-        } else {
-            getTheme(DataStore.appTheme)
         }
+        val base = baseOf(id) ?: baseOf(LIGHT_GRAY)!!
+        return if (dialog) base.dialogStyle else base.style
     }
 
-    fun getDialogTheme(context: Context = app): Int {
-        if (usingNightMode(context)) {
-            return R.style.Theme_SagerNet_Dialog_Black
-        }
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && DataStore.useSystemTheme) {
-            val wallpaperColor = getSystemWallpaperColor(context)
-            if (wallpaperColor != null) {
-                val closest = getClosestThemeForColor(wallpaperColor)
-                if (closest == WHITE) R.style.Theme_SagerNet_Dialog_White else getDialogTheme(closest)
-            } else {
-                getDialogTheme(MONET)
-            }
-        } else {
-            getDialogTheme(DataStore.appTheme)
-        }
-    }
+    fun getTheme(context: Context = app): Int = styleOf(currentBaseId(context), false)
 
-    fun getTheme(theme: Int): Int {
-        return when (theme) {
-            BLACK -> R.style.Theme_SagerNet_Black
-            WHITE -> R.style.Theme_SagerNet_White
-            LIGHT_GRAY -> R.style.Theme_SagerNet_LightGray
-            else -> {
-                if (DataStore.appTheme !in setOf(BLACK, WHITE, LIGHT_GRAY)) {
-                    DataStore.appTheme = LIGHT_GRAY
-                }
-                R.style.Theme_SagerNet_LightGray
-            }
-        }
-    }
+    fun getDialogTheme(context: Context = app): Int = styleOf(currentBaseId(context), true)
 
-    fun getDialogTheme(theme: Int): Int {
-        return when (theme) {
-            BLACK -> R.style.Theme_SagerNet_Dialog_Black
-            WHITE -> R.style.Theme_SagerNet_Dialog_White
-            LIGHT_GRAY -> R.style.Theme_SagerNet_Dialog_LightGray
-            else -> {
-                if (DataStore.appTheme !in setOf(BLACK, WHITE, LIGHT_GRAY)) {
-                    DataStore.appTheme = LIGHT_GRAY
-                }
-                R.style.Theme_SagerNet_Dialog_LightGray
-            }
-        }
-    }
+    fun getTheme(theme: Int): Int = styleOf(if (isBaseTheme(theme)) theme else LIGHT_GRAY, false)
+
+    fun getDialogTheme(theme: Int): Int = styleOf(if (isBaseTheme(theme)) theme else LIGHT_GRAY, true)
 
     fun isSystemNight(context: Context = app): Boolean {
         val ctxUiMode = (context as? android.app.Activity)?.resources?.configuration?.uiMode
@@ -268,28 +433,25 @@ object Theme {
         return (sysUiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
     }
 
-    fun isWhiteTheme(context: Context = app): Boolean = !usingNightMode(context) && DataStore.appTheme == WHITE
-    fun isLightGrayTheme(context: Context = app): Boolean = !usingNightMode(context) && DataStore.appTheme == LIGHT_GRAY
-    fun isBlackTheme(context: Context = app): Boolean = usingNightMode(context) || DataStore.appTheme == BLACK
+    fun isWhiteTheme(context: Context = app): Boolean = currentBaseId(context) == WHITE
+    fun isLightGrayTheme(context: Context = app): Boolean = currentBaseId(context) == LIGHT_GRAY
+
+    /** True when a dark base is on screen (pure black, any dark preset, a dark custom base, or night mode). */
+    fun isBlackTheme(context: Context = app): Boolean = isDarkBaseId(currentBaseId(context))
+
+    /** True only for the pure black (AMOLED) base. */
+    fun isPureBlackTheme(context: Context = app): Boolean = currentBaseId(context) == BLACK
 
     fun getPrimaryColor(context: Context): Int {
         accentColor(context)?.let { return it }
-        if (usingNightMode(context) || isBlackTheme(context)) {
-            return Color.WHITE
+        val p = palette(context)
+        // The plain black / white / gray bases stay monochrome; the tinted bases use their own primary.
+        return when (p.id) {
+            BLACK -> Color.WHITE
+            WHITE -> Color.parseColor("#212121")
+            LIGHT_GRAY -> Color.parseColor("#1F2937")
+            else -> p.primary
         }
-        if (isWhiteTheme(context)) {
-            return Color.parseColor("#212121")
-        }
-        if (isLightGrayTheme(context)) {
-            return Color.parseColor("#1F2937")
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && DataStore.useSystemTheme) {
-            val wallpaperColor = getSystemWallpaperColor(context)
-            if (wallpaperColor != null) {
-                return wallpaperColor
-            }
-        }
-        return context.getColorAttr(R.attr.colorPrimary)
     }
 
     var currentNightMode = -1
@@ -320,7 +482,7 @@ object Theme {
     fun applyNightTheme() {
         if (DataStore.nightTheme == 0) {
             AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
-        } else if (DataStore.nightTheme == 1 || DataStore.appTheme == BLACK) {
+        } else if (DataStore.nightTheme == 1 || isDarkBaseId(selectedBaseId())) {
             AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
         } else if (DataStore.nightTheme == 2) {
             AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)

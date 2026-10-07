@@ -177,37 +177,45 @@ class StatsBar @JvmOverloads constructor(
     fun updateThemeColors() {
         if (!this::statusText.isInitialized) return
         val currentContext = context ?: return
-        if (Theme.isBlackTheme(currentContext)) {
-            backgroundTintList = ColorStateList.valueOf(Color.BLACK)
-        } else if (Theme.isWhiteTheme(currentContext)) {
-            backgroundTintList = ColorStateList.valueOf(Color.WHITE)
-        } else if (Theme.isLightGrayTheme(currentContext)) {
-            backgroundTintList = ColorStateList.valueOf(Color.parseColor("#F5F5F7"))
-        }
-        val effectiveBgColor = backgroundTintList?.defaultColor
-            ?: currentContext.getColorAttr(R.attr.colorPrimary)
+        // One continuous surface: the bar is the base's raised surface washed with the accent, and (with a
+        // transparent navigation bar, see MainActivity) it also fills the gesture-bar area below it. Before, the
+        // accent only showed as a thin navigation-bar strip under a large black bar.
+        val effectiveBgColor = Theme.statsBarColor(currentContext)
+        backgroundTintList = ColorStateList.valueOf(effectiveBgColor)
+        (activityOrNull() as? MainActivity)?.onStatsBarColorChanged(effectiveBgColor)
 
         val isLightBg = ColorUtils.calculateLuminance(effectiveBgColor) > 0.45
+        val palette = Theme.palette(currentContext)
 
+        val primaryTextColor: Int
+        val secondaryTextColor: Int
         if (isLightBg) {
-            val primaryTextColor = Color.parseColor("#1E293B")
-            val secondaryTextColor = Color.parseColor("#64748B")
-            txText.setTextColor(secondaryTextColor)
-            rxText.setTextColor(secondaryTextColor)
-            statusIpText.setTextColor(primaryTextColor)
-            statusTitleText.setTextColor(secondaryTextColor)
-            statusText.setTextColor(primaryTextColor)
-            (btnIpDetail as? ImageView)?.imageTintList = ColorStateList.valueOf(primaryTextColor)
+            primaryTextColor = if (palette.dark) Color.parseColor("#1E293B") else palette.textPrimary
+            secondaryTextColor = ColorUtils.setAlphaComponent(primaryTextColor, 0xA6)
         } else {
-            val primaryTextColor = Color.WHITE
-            val secondaryTextColor = Color.parseColor("#CCFFFFFF")
-            txText.setTextColor(secondaryTextColor)
-            rxText.setTextColor(secondaryTextColor)
-            statusIpText.setTextColor(primaryTextColor)
-            statusTitleText.setTextColor(secondaryTextColor)
-            statusText.setTextColor(primaryTextColor)
-            (btnIpDetail as? ImageView)?.imageTintList = ColorStateList.valueOf(primaryTextColor)
+            primaryTextColor = Color.WHITE
+            secondaryTextColor = Color.parseColor("#CCFFFFFF")
         }
+        txText.setTextColor(secondaryTextColor)
+        rxText.setTextColor(secondaryTextColor)
+        statusIpText.setTextColor(primaryTextColor)
+        statusTitleText.setTextColor(secondaryTextColor)
+        // the latency value picks up the accent when it stays readable on the bar
+        val accent = Theme.accentColor(currentContext)
+        statusText.setTextColor(
+            if (accent != null && ColorUtils.calculateContrast(accent or 0xFF000000.toInt(), effectiveBgColor or 0xFF000000.toInt()) >= 3.0) accent
+            else primaryTextColor
+        )
+        (btnIpDetail as? ImageView)?.imageTintList = ColorStateList.valueOf(primaryTextColor)
+    }
+
+    private fun activityOrNull(): Activity? {
+        var c: Context? = context
+        while (c is android.content.ContextWrapper) {
+            if (c is Activity) return c
+            c = c.baseContext
+        }
+        return null
     }
 
     override fun onAttachedToWindow() {
@@ -626,13 +634,8 @@ class StatsBar @JvmOverloads constructor(
 
             // 1. 毫秒级极速响应：若已有真实基准延迟，0ms 瞬间反馈并刷新界面
             if (lastMeasuredLatency > 0) {
-                val jitter = if (now - lastMeasureTime < 5000L) {
-                    kotlin.random.Random.nextInt(-2, 3)
-                } else {
-                    0
-                }
-                val displayLatency = (lastMeasuredLatency + jitter).coerceAtLeast(1)
-                updateStatusViews(displayLatency)
+                // show the last real measurement (it used to add a random ±2 ms "jitter", i.e. a made-up value)
+                updateStatusViews(lastMeasuredLatency)
             } else if (!silent) {
                 updateStatusViews(customStatus = app.getText(R.string.connection_test_testing))
             }

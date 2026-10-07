@@ -21,6 +21,7 @@ import androidx.annotation.IdRes
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
+import androidx.core.view.WindowCompat
 import androidx.preference.PreferenceDataStore
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.navigation.NavigationView
@@ -89,36 +90,17 @@ class MainActivity : ThemedActivity(),
 
         binding = LayoutMainBinding.inflate(layoutInflater)
         binding.fab.initProgress(binding.fabProgress)
-        val isNight = Theme.usingNightMode(this)
         val accentColor = Theme.accentColor(this)
-        val fabBgColor = when {
-            accentColor != null -> accentColor
-            Theme.isBlackTheme(this) -> Color.BLACK
-            Theme.isWhiteTheme(this) -> Color.parseColor("#212121")
-            Theme.isLightGrayTheme(this) -> Color.parseColor("#1F2937")
-            else -> {
-                val bg = getColorAttr(R.attr.fabColorBackground)
-                if (isNight && ColorUtils.calculateLuminance(bg) > 0.75) {
-                    val primary = getColorAttr(R.attr.colorPrimary)
-                    if (ColorUtils.calculateLuminance(primary) > 0.75) {
-                        Color.parseColor("#2C2C2E")
-                    } else {
-                        primary
-                    }
-                } else {
-                    bg
-                }
-            }
-        }
+        val fabBgColor = accentColor ?: Theme.palette(this).fab
         binding.fab.backgroundTintList = ColorStateList.valueOf(fabBgColor)
         binding.fab.imageTintList = ColorStateList.valueOf(
-            if (accentColor != null && ColorUtils.calculateContrast(Color.WHITE, accentColor or 0xFF000000.toInt()) < 3.0) Color.BLACK
+            if (ColorUtils.calculateContrast(Color.WHITE, fabBgColor or 0xFF000000.toInt()) < 3.0) Color.BLACK
             else Color.WHITE
         )
-        if (themeResId !in intArrayOf(
-                R.style.Theme_SagerNet_Black
-            )
-        ) {
+        // The stats bar (BottomAppBar) already pads itself for the navigation bar and draws under it, so a
+        // transparent navigation bar lets the bar's colour run to the screen edge instead of a separate strip.
+        window.navigationBarColor = Color.TRANSPARENT
+        if (!Theme.isBlackTheme(this)) {
             navigation = binding.navView
             binding.drawerLayout.removeView(binding.navViewBlack)
         } else {
@@ -525,6 +507,14 @@ class MainActivity : ThemedActivity(),
         }
         uncheckAll(menu)
         menu.findItem(id)?.isChecked = true
+    }
+
+    /** Keeps the navigation-bar icons readable over the stats bar colour. */
+    fun onStatsBarColorChanged(color: Int) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val light = ColorUtils.calculateLuminance(color or 0xFF000000.toInt()) > 0.45
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        if (controller.isAppearanceLightNavigationBars != light) controller.isAppearanceLightNavigationBars = light
     }
 
     override fun onNavigationItemSelected(item: MenuItem): Boolean {

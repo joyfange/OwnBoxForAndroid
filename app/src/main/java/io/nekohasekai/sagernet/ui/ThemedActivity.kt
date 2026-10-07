@@ -36,6 +36,7 @@ abstract class ThemedActivity : AppCompatActivity {
     private var lastUsingNight: Boolean = false
     private var lastAccent: Int = 0
     private var lastAccentColor: Int = 0
+    private var lastBaseColor: Int = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         lastUseSystemTheme = DataStore.useSystemTheme
@@ -45,6 +46,7 @@ abstract class ThemedActivity : AppCompatActivity {
         lastUsingNight = Theme.usingNightMode(this)
         lastAccent = DataStore.accentTheme
         lastAccentColor = DataStore.accentCustomColor
+        lastBaseColor = DataStore.baseCustomColor
 
         Theme.applyNightTheme()
         if (!isDialog) {
@@ -58,6 +60,11 @@ abstract class ThemedActivity : AppCompatActivity {
         uiMode = resources.configuration.uiMode
 
         window.statusBarColor = Color.TRANSPARENT
+        if (!isDialog) {
+            // The theme maps the navigation bar to colorPrimaryDark, which accent overlays turn into a coloured
+            // strip at the bottom of every screen. Match the window background instead.
+            window.navigationBarColor = getColorAttr(android.R.attr.colorBackground)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isStatusBarContrastEnforced = false
             window.isNavigationBarContrastEnforced = false
@@ -122,7 +129,8 @@ abstract class ThemedActivity : AppCompatActivity {
             lastNightTheme != DataStore.nightTheme ||
             lastUsingNight != currentUsingNight ||
             lastAccent != DataStore.accentTheme ||
-            (lastAccent == Theme.CUSTOM && lastAccentColor != DataStore.accentCustomColor)) {
+            (lastAccent == Theme.CUSTOM && lastAccentColor != DataStore.accentCustomColor) ||
+            (lastAppTheme == Theme.CUSTOM_BASE && lastBaseColor != DataStore.baseCustomColor)) {
             ActivityCompat.recreate(this)
         }
     }

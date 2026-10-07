@@ -123,7 +123,8 @@ class BaseService {
                     runOnDefaultDispatcher {
                         proxy?.looper?.postLastSnapshotSpeed()
                     }
-                    if (DataStore.wakeResetConnections) {
+                    // Unlocking fires SCREEN_ON and then USER_PRESENT; resetting on both dropped every connection twice.
+                    if (DataStore.wakeResetConnections && intent.action == Intent.ACTION_SCREEN_ON) {
                         Libcore.resetAllConnections(true)
                     }
                 }
@@ -163,10 +164,15 @@ class BaseService {
         private val callbacks = object : RemoteCallbackList<ISagerNetServiceCallback>() {
             override fun onCallbackDied(callback: ISagerNetServiceCallback?, cookie: Any?) {
                 super.onCallbackDied(callback, cookie)
+                // A UI process that died without unregistering left its id behind, so the traffic loop kept
+                // polling at the foreground rate (and the notification kept updating every second) forever.
+                if (callback != null) callbackIdMap.remove(callback)
             }
         }
 
-        val callbackIdMap = mutableMapOf<ISagerNetServiceCallback, Int>()
+        // Written from binder threads (register / unregister) and read from the traffic loop on another thread:
+        // a plain HashMap could throw ConcurrentModificationException there and take the service down.
+        val callbackIdMap: MutableMap<ISagerNetServiceCallback, Int> = java.util.concurrent.ConcurrentHashMap()
 
         override val coroutineContext = Dispatchers.Main.immediate + Job()
 
@@ -178,7 +184,7 @@ class BaseService {
                 Runtime.getRuntime().exit(0)
                 return
             }
-            if (!callbackIdMap.contains(cb)) {
+            if (!callbackIdMap.containsKey(cb)) {
                 callbacks.register(cb)
             }
             callbackIdMap[cb] = id

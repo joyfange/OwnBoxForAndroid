@@ -54,12 +54,7 @@ class ColorPickerPreference @JvmOverloads constructor(
         val widgetFrame = holder.findViewById(android.R.id.widget_frame) as LinearLayout
         widgetFrame.removeAllViews()
 
-        val displayColor = when {
-            Theme.isBlackTheme(context) -> Color.BLACK
-            Theme.isWhiteTheme(context) -> Color.WHITE
-            Theme.isLightGrayTheme(context) -> Color.parseColor("#F5F5F7")
-            else -> context.getColorAttr(R.attr.colorPrimary)
-        }
+        val displayColor = Theme.palette(context).background
 
         val factor = context.resources.displayMetrics.density
         val size = (44 * factor).roundToInt()
@@ -73,10 +68,10 @@ class ColorPickerPreference @JvmOverloads constructor(
 
     private fun getColorBadgeDrawable(res: Resources, color: Int, isSelected: Boolean): Drawable {
         val factor = res.displayMetrics.density
-        val strokeColor = when (color) {
-            Color.WHITE -> Color.parseColor("#CCCCCC")
-            Color.parseColor("#F5F5F7") -> Color.parseColor("#CBD5E1")
-            Color.BLACK -> Color.parseColor("#444444")
+        val lum = ColorUtils.calculateLuminance(color or 0xFF000000.toInt())
+        val strokeColor = when {
+            lum > 0.85 -> Color.parseColor("#CBD5E1")
+            lum < 0.05 -> Color.parseColor("#444444")
             else -> Color.parseColor("#33000000")
         }
 
@@ -91,7 +86,7 @@ class ColorPickerPreference @JvmOverloads constructor(
         }
 
         val checkmark = ResourcesCompat.getDrawable(res, R.drawable.ic_baseline_check_circle_24, null)!!.mutate()
-        val checkTint = if (color == Color.WHITE || color == Color.parseColor("#F5F5F7")) {
+        val checkTint = if (ColorUtils.calculateContrast(Color.WHITE, color or 0xFF000000.toInt()) < 2.2) {
             Color.parseColor("#212121")
         } else {
             Color.WHITE
@@ -131,22 +126,23 @@ class ColorPickerPreference @JvmOverloads constructor(
         }
 
         val nightActive = Theme.usingNightMode(context)
-        // What is actually on screen: night mode always shows the black base.
-        val currentThemeId = when {
-            nightActive -> Theme.BLACK
-            DataStore.appTheme !in setOf(Theme.BLACK, Theme.WHITE, Theme.LIGHT_GRAY) -> Theme.LIGHT_GRAY
-            else -> DataStore.appTheme
+        // What is actually on screen (night mode shows black instead of a light base).
+        val currentThemeId = Theme.currentBaseId(context).let {
+            // below Android 11 the custom base is shown as its closest preset; keep the custom tile selected
+            if (Theme.selectedBaseId() == Theme.CUSTOM_BASE && !(nightActive && !Theme.isCustomBaseDark())) Theme.CUSTOM_BASE else it
         }
 
-        fun applyTheme(themeId: Int) {
+        fun applyTheme(themeId: Int, customColor: Int? = null) {
             dialog.dismiss()
-            if (themeId == currentThemeId) return
+            val colorChanged = customColor != null && customColor != DataStore.baseCustomColor
+            if (customColor != null) DataStore.baseCustomColor = customColor
+            if (themeId == currentThemeId && !colorChanged) return
             persistInt(themeId)
             DataStore.appTheme = themeId
-            // Theme.getTheme() forces the black base while night mode is in effect (night mode "on", or "follow
-            // system" with a dark system), so picking a light base used to do nothing. Choosing a light base turns
-            // night mode off so the choice applies; picking black again works with any night mode setting.
-            if (themeId != Theme.BLACK && Theme.usingNightMode(context)) {
+            // Night mode shows black instead of a light base, so picking a light base turns night mode off;
+            // dark bases work with any night mode setting.
+            val pickedDark = if (themeId == Theme.CUSTOM_BASE) Theme.isCustomBaseDark() else Theme.baseOf(themeId)?.dark == true
+            if (!pickedDark && Theme.usingNightMode(context)) {
                 DataStore.nightTheme = 2
                 Theme.currentNightMode = 2
             }
@@ -165,7 +161,7 @@ class ColorPickerPreference @JvmOverloads constructor(
             recreateHost()
         }
 
-        // 1. Core Base Themes Section
+        // 1. Base themes: preview tiles (background, a card and the primary colour), light then dark.
         rootLayout.addView(sectionTitle(context.getString(R.string.theme_base_section)))
         if (nightActive) {
             rootLayout.addView(TextView(context).apply {
@@ -176,72 +172,162 @@ class ColorPickerPreference @JvmOverloads constructor(
             })
         }
 
-        val baseThemes = listOf(
-            PresetTheme(Theme.BLACK, "纯黑 (AMOLED Black)", Color.BLACK, "纯黑底色 #000000 · 极致省电高对比"),
-            PresetTheme(Theme.WHITE, "纯白 (Pure White)", Color.WHITE, "纯白底色 #FFFFFF · 极简黑白高反差"),
-            PresetTheme(Theme.LIGHT_GRAY, "浅灰 (Light Gray)", Color.parseColor("#F5F5F7"), "柔灰底色 #F5F5F7 · 优雅层次悬浮感")
-        )
+        val selectedStroke = Theme.accentColor(context) ?: context.getColorAttr(android.R.attr.textColorPrimary)
 
-        for (base in baseThemes) {
-            val isSelected = currentThemeId == base.id
-            val card = MaterialCardView(context).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    setMargins(0, 0, 0, dp2px(8))
+        fun baseTile(id: Int, label: String, bg: Int, card: Int, primary: Int, isCustom: Boolean): View {
+            val selected = currentThemeId == id
+            return LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginStart = dp2px(4)
+                    marginEnd = dp2px(4)
                 }
-                radius = dp2px(12).toFloat()
-                cardElevation = 0f
-                strokeWidth = if (isSelected) dp2px(2) else dp2px(1)
-                strokeColor = if (isSelected) context.getColorAttr(R.attr.colorPrimary) else Color.parseColor("#25888888")
-                setCardBackgroundColor(if (isSelected) Color.parseColor("#0F2196F3") else Color.TRANSPARENT)
                 isClickable = true
                 isFocusable = true
+                contentDescription = label
                 setOnClickListener {
-                    applyTheme(base.id)
+                    if (isCustom) {
+                        AccentColorPickerDialog.show(
+                            context, DataStore.baseCustomColor,
+                            titleRes = R.string.base_custom_title,
+                            noteRes = R.string.color_picker_base_note,
+                            fallbackNoteRes = R.string.color_picker_base_fallback_note,
+                        ) { picked -> applyTheme(Theme.CUSTOM_BASE, picked) }
+                    } else {
+                        applyTheme(id)
+                    }
                 }
 
-                val row = LinearLayout(context).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp2px(12), dp2px(10), dp2px(12), dp2px(10))
-
-                    val iv = ImageView(context).apply {
-                        val sz = dp2px(36)
-                        layoutParams = LinearLayout.LayoutParams(sz, sz).apply {
-                            marginEnd = dp2px(12)
-                        }
-                        setImageDrawable(getColorBadgeDrawable(context.resources, base.color, isSelected))
+                val preview = FrameLayout(context).apply {
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp2px(58))
+                    background = GradientDrawable().apply {
+                        cornerRadius = dp2px(12).toFloat()
+                        setColor(bg)
+                        val lum = ColorUtils.calculateLuminance(bg)
+                        setStroke(
+                            if (selected) dp2px(2) else dp2px(1),
+                            when {
+                                selected -> selectedStroke
+                                lum > 0.8 -> Color.parseColor("#D5DAE1")
+                                else -> Color.parseColor("#33888888")
+                            }
+                        )
                     }
-                    addView(iv)
-
-                    val textCol = LinearLayout(context).apply {
-                        orientation = LinearLayout.VERTICAL
-                        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-
-                        val titleView = TextView(context).apply {
-                            text = base.name
-                            textSize = 14f
-                            setTypeface(null, if (isSelected) Typeface.BOLD else Typeface.NORMAL)
-                            setTextColor(context.getColorAttr(android.R.attr.textColorPrimary))
+                    // a mini card
+                    addView(View(context).apply {
+                        layoutParams = FrameLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp2px(20)).apply {
+                            gravity = Gravity.BOTTOM
+                            setMargins(dp2px(8), 0, dp2px(8), dp2px(8))
                         }
-                        addView(titleView)
-
-                        val subtitleView = TextView(context).apply {
-                            text = base.subtitle
-                            textSize = 11.5f
-                            setTextColor(context.getColorAttr(android.R.attr.textColorSecondary))
-                            setPadding(0, dp2px(2), 0, 0)
+                        background = GradientDrawable().apply {
+                            cornerRadius = dp2px(6).toFloat()
+                            setColor(if (card == bg) ColorUtils.blendARGB(bg, if (ColorUtils.calculateLuminance(bg) > 0.5) Color.BLACK else Color.WHITE, 0.06f) else card)
                         }
-                        addView(subtitleView)
-                    }
-                    addView(textCol)
+                    })
+                    // primary dot (palette icon on the custom tile, check when selected)
+                    addView(ImageView(context).apply {
+                        val sz = dp2px(18)
+                        layoutParams = FrameLayout.LayoutParams(sz, sz).apply {
+                            gravity = Gravity.TOP or Gravity.END
+                            setMargins(0, dp2px(7), dp2px(8), 0)
+                        }
+                        val dot = GradientDrawable().apply {
+                            shape = GradientDrawable.OVAL
+                            setColor(primary)
+                        }
+                        val iconRes = when {
+                            selected -> R.drawable.ic_baseline_check_circle_24
+                            isCustom -> R.drawable.ic_baseline_color_lens_24
+                            else -> 0
+                        }
+                        val icon = if (iconRes != 0) ResourcesCompat.getDrawable(context.resources, iconRes, null)?.mutate() else null
+                        if (icon != null) {
+                            DrawableCompat.setTint(
+                                icon,
+                                if (ColorUtils.calculateContrast(Color.WHITE, primary or 0xFF000000.toInt()) >= 2.2) Color.WHITE else Color.parseColor("#212121")
+                            )
+                            val layer = LayerDrawable(arrayOf<Drawable>(dot, icon))
+                            val inset = dp2px(2)
+                            layer.setLayerInset(1, inset, inset, inset, inset)
+                            setImageDrawable(layer)
+                        } else {
+                            setImageDrawable(dot)
+                        }
+                    })
                 }
-                addView(row)
+                addView(preview)
+                addView(TextView(context).apply {
+                    text = label
+                    textSize = 11.5f
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
+                    gravity = Gravity.CENTER
+                    setPadding(0, dp2px(4), 0, dp2px(8))
+                    setTypeface(null, if (selected) Typeface.BOLD else Typeface.NORMAL)
+                    setTextColor(
+                        context.getColorAttr(
+                            if (selected) android.R.attr.textColorPrimary else android.R.attr.textColorSecondary
+                        )
+                    )
+                })
             }
-            rootLayout.addView(card)
         }
+
+        fun addTileGrid(tiles: List<View>, columns: Int = 4) {
+            var line: LinearLayout? = null
+            tiles.forEachIndexed { i, tile ->
+                if (i % columns == 0) {
+                    line = LinearLayout(context).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                        )
+                    }
+                    rootLayout.addView(line)
+                }
+                line?.addView(tile)
+            }
+            val rem = tiles.size % columns
+            if (rem != 0) repeat(columns - rem) {
+                line?.addView(View(context).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, 0, 1f).apply {
+                        marginStart = dp2px(4)
+                        marginEnd = dp2px(4)
+                    }
+                })
+            }
+        }
+
+        fun subTitle(res: Int) = TextView(context).apply {
+            text = context.getString(res)
+            textSize = 11.5f
+            setTextColor(context.getColorAttr(android.R.attr.textColorSecondary))
+            setPadding(dp2px(4), dp2px(2), 0, dp2px(6))
+        }
+
+        fun presetTile(base: Theme.Base) = baseTile(
+            base.id, context.getString(base.title),
+            ContextCompat.getColor(context, base.background),
+            ContextCompat.getColor(context, base.card),
+            ContextCompat.getColor(context, base.primary),
+            false,
+        )
+
+        val customColors = Theme.customBaseColors(DataStore.baseCustomColor)
+        val customTile = baseTile(
+            Theme.CUSTOM_BASE, context.getString(R.string.base_custom),
+            customColors.getValue(R.color.base_custom_bg),
+            customColors.getValue(R.color.base_custom_card),
+            customColors.getValue(R.color.base_custom_primary),
+            true,
+        )
+        val customIsDark = Theme.isCustomBaseDark()
+
+        rootLayout.addView(subTitle(R.string.theme_base_light))
+        addTileGrid(Theme.BASES.filter { !it.dark }.map { presetTile(it) } + if (customIsDark) emptyList() else listOf(customTile))
+        rootLayout.addView(subTitle(R.string.theme_base_dark))
+        addTileGrid(Theme.BASES.filter { it.dark }.map { presetTile(it) } + if (customIsDark) listOf(customTile) else emptyList())
 
         // 2. Accent colours (independent of the base above)
         rootLayout.addView(sectionTitle(context.getString(R.string.theme_accent_section)).apply {
@@ -250,10 +336,13 @@ class ColorPickerPreference @JvmOverloads constructor(
 
         val dark = Theme.isBlackTheme(context)
         val currentAccent = DataStore.accentTheme
-        val noneColor = when (currentThemeId) {
-            Theme.BLACK -> Color.WHITE
-            Theme.WHITE -> Color.parseColor("#212121")
-            else -> Color.parseColor("#1F2937")
+        val noneColor = Theme.palette(context).let {
+            when (it.id) {
+                Theme.BLACK -> Color.WHITE
+                Theme.WHITE -> Color.parseColor("#212121")
+                Theme.LIGHT_GRAY -> Color.parseColor("#1F2937")
+                else -> it.primary
+            }
         }
 
         class Swatch(val id: Int, val label: String, val color: Int)

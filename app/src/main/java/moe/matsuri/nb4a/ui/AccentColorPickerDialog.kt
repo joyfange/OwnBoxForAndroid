@@ -14,6 +14,7 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
+import androidx.annotation.StringRes
 import androidx.core.graphics.ColorUtils
 import androidx.core.widget.NestedScrollView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -30,7 +31,14 @@ import io.nekohasekai.sagernet.ktx.getColorAttr
  */
 object AccentColorPickerDialog {
 
-    fun show(context: Context, initialColor: Int, onPicked: (Int) -> Unit) {
+    fun show(
+        context: Context,
+        initialColor: Int,
+        @StringRes titleRes: Int = R.string.accent_custom,
+        @StringRes noteRes: Int = 0,
+        @StringRes fallbackNoteRes: Int = R.string.color_picker_fallback_note,
+        onPicked: (Int) -> Unit,
+    ) {
         val hsv = FloatArray(3)
         Color.colorToHSV(initialColor or 0xFF000000.toInt(), hsv)
         var updating = false
@@ -105,8 +113,14 @@ object AccentColorPickerDialog {
         root.addView(valLabel)
         root.addView(value)
 
+        if (noteRes != 0) {
+            root.addView(label(context.getString(noteRes)).apply {
+                textSize = 12f
+                setPadding(dp2px(2), dp2px(12), 0, 0)
+            })
+        }
         if (!OwnBoxColorOverrides.isAvailable()) {
-            root.addView(label(context.getString(R.string.color_picker_fallback_note)).apply {
+            root.addView(label(context.getString(fallbackNoteRes)).apply {
                 textSize = 12f
                 setPadding(dp2px(2), dp2px(12), 0, 0)
             })
@@ -181,7 +195,7 @@ object AccentColorPickerDialog {
         refresh(false)
 
         MaterialAlertDialogBuilder(context)
-            .setTitle(R.string.accent_custom)
+            .setTitle(titleRes)
             .setView(NestedScrollView(context).apply { addView(root) })
             .setNegativeButton(android.R.string.cancel, null)
             .setPositiveButton(android.R.string.ok) { _, _ ->

@@ -7,6 +7,7 @@ import io.nekohasekai.sagernet.aidl.SpeedDisplayData
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.ProfileManager
 import io.nekohasekai.sagernet.database.ProxyEntity
+import io.nekohasekai.sagernet.database.ProxyGroup
 import io.nekohasekai.sagernet.database.SagerDatabase
 import io.nekohasekai.sagernet.fmt.internal.BalancerBean
 import io.nekohasekai.sagernet.ktx.Logs
@@ -16,6 +17,7 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 import kotlin.math.abs
 
 object ActiveOutboundTracker {
@@ -31,6 +33,53 @@ object ActiveOutboundTracker {
     fun reset() {
         activeLeafProfileId = 0L
         activeLeafProfileName = ""
+        lastCheckAt = 0L
+        lastCheckedProfileId = 0L
+    }
+
+    // --- Battery: the traffic loop and the notification ask about the current group on every tick (up to once a
+    // second). Group rows, strategy flags and member ids change rarely, so they are cached for a few seconds instead
+    // of re-reading (and deserialising every member of) the group from the database each time.
+    private const val GROUP_CACHE_TTL_MS = 10_000L
+    private const val MIN_CHECK_INTERVAL_MS = 2_000L
+
+    private class CachedGroup(val group: ProxyGroup?, val at: Long)
+    private class CachedMembers(val groupId: Long, val ids: List<Long>, val at: Long)
+
+    private val groupCache = java.util.concurrent.ConcurrentHashMap<Long, CachedGroup>()
+    @Volatile
+    private var memberCache: CachedMembers? = null
+    @Volatile
+    private var lastCheckAt = 0L
+    @Volatile
+    private var lastCheckedProfileId = 0L
+
+    private fun now() = android.os.SystemClock.elapsedRealtime()
+
+    /** The group row, cached briefly (null when missing). */
+    fun cachedGroup(groupId: Long): ProxyGroup? {
+        val hit = groupCache[groupId]
+        val t = now()
+        if (hit != null && t - hit.at < GROUP_CACHE_TTL_MS) return hit.group
+        val group = runCatching { SagerDatabase.groupDao.getById(groupId) }.getOrNull()
+        groupCache[groupId] = CachedGroup(group, t)
+        return group
+    }
+
+    private fun cachedMemberIds(groupId: Long): List<Long>? {
+        val hit = memberCache
+        val t = now()
+        if (hit != null && hit.groupId == groupId && t - hit.at < GROUP_CACHE_TTL_MS) return hit.ids
+        val ids = runCatching { SagerDatabase.proxyDao.getByGroup(groupId).map { it.id } }.getOrNull() ?: return null
+        memberCache = CachedMembers(groupId, ids, t)
+        return ids
+    }
+
+    /** Drops cached group data (after the user edits groups or switches profiles). */
+    fun invalidateCache() {
+        groupCache.clear()
+        memberCache = null
+        lastCheckAt = 0L
     }
 
     fun getStrategyDisplayName(profile: ProxyEntity): String {
@@ -47,7 +96,7 @@ object ActiveOutboundTracker {
                 else -> "策略组"
             }
         }
-        val group = runCatching { SagerDatabase.groupDao.getById(profile.groupId) }.getOrNull()
+        val group = cachedGroup(profile.groupId)
         if (group != null) {
             if (runCatching { DataStore.isGroupUrlTest(group.id) }.getOrDefault(false)) return "自动测速"
             if (runCatching { DataStore.isGroupLoadBalance(group.id) }.getOrDefault(false)) return "负载均衡"
@@ -59,6 +108,7 @@ object ActiveOutboundTracker {
     fun onProfileSwitched(newProfile: ProxyEntity) {
         val oldId = activeLeafProfileId
         reset()
+        invalidateCache()
         if (oldId > 0L) {
             runOnDefaultDispatcher {
                 ProfileManager.postUpdate(oldId, true)
@@ -74,7 +124,7 @@ object ActiveOutboundTracker {
 
     fun getActiveLeafNodeDisplay(profile: ProxyEntity): String? {
         val isBalancer = profile.type == ProxyEntity.TYPE_BALANCER
-        val group = runCatching { SagerDatabase.groupDao.getById(profile.groupId) }.getOrNull()
+        val group = cachedGroup(profile.groupId)
         val isGroupStrategy = group != null && (
             runCatching { DataStore.isGroupUrlTest(group.id) }.getOrDefault(false) ||
             runCatching { DataStore.isGroupLoadBalance(group.id) }.getOrDefault(false)
@@ -101,7 +151,7 @@ object ActiveOutboundTracker {
         isGlobalMode: Boolean? = null
     ): String {
         val isBalancer = profile.type == ProxyEntity.TYPE_BALANCER
-        val group = runCatching { SagerDatabase.groupDao.getById(profile.groupId) }.getOrNull()
+        val group = cachedGroup(profile.groupId)
         val isGroupStrategy = group != null && (
             runCatching { DataStore.isGroupUrlTest(group.id) }.getOrDefault(false) ||
             runCatching { DataStore.isGroupLoadBalance(group.id) }.getOrDefault(false)
@@ -235,7 +285,9 @@ object ActiveOutboundTracker {
     private fun queryClashNowTag(groupTag: String): String? {
         var conn: HttpURLConnection? = null
         return try {
-            val url = URL("http://127.0.0.1:9090/proxies/$groupTag")
+            // tags are node / group names (Chinese, spaces, emoji): encode them or the URL is invalid
+            val encoded = URLEncoder.encode(groupTag, "UTF-8").replace("+", "%20")
+            val url = URL("http://127.0.0.1:9090/proxies/$encoded")
             conn = (url.openConnection() as HttpURLConnection).apply {
                 connectTimeout = 300
                 readTimeout = 300
@@ -262,8 +314,14 @@ object ActiveOutboundTracker {
         val proxy = data.proxy ?: return false
         if (!proxy.isInitialized()) return false
         val profile = proxy.profile
+        // Throttle: the node a strategy group routes through cannot be told apart faster than its URL test runs
+        // anyway, and each check may hit the local Clash API. Re-check at most every 2 s (immediately on a switch).
+        val t = now()
+        if (profile.id == lastCheckedProfileId && t - lastCheckAt < MIN_CHECK_INTERVAL_MS) return false
+        lastCheckedProfileId = profile.id
+        lastCheckAt = t
         val isBalancer = profile.type == ProxyEntity.TYPE_BALANCER
-        val group = runCatching { SagerDatabase.groupDao.getById(profile.groupId) }.getOrNull()
+        val group = cachedGroup(profile.groupId)
         val isGroupStrategy = group != null && (
             runCatching { DataStore.isGroupUrlTest(group.id) }.getOrDefault(false) ||
             runCatching { DataStore.isGroupLoadBalance(group.id) }.getOrDefault(false)
@@ -281,7 +339,7 @@ object ActiveOutboundTracker {
         // Strategy group: resolve active member
         val balancerMembers = runCatching { proxy.safeConfig?.balancerMemberMap?.get(profile.id) }.getOrNull()
         val memberMap = balancerMembers
-            ?: if (isGroupStrategy) runCatching { SagerDatabase.proxyDao.getByGroup(group!!.id).map { it.id } }.getOrNull() else null
+            ?: if (isGroupStrategy) cachedMemberIds(group!!.id) else null
 
         if (memberMap.isNullOrEmpty()) {
             if (activeLeafProfileId != 0L) {

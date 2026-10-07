@@ -42,26 +42,32 @@ object LandingIpBottomSheet {
         tvDuration.text = "${info.durationMs} ms"
 
         val sheetContext = activity
-        val isNight = io.nekohasekai.sagernet.utils.Theme.usingNightMode(sheetContext)
-        val isWhite = io.nekohasekai.sagernet.utils.Theme.isWhiteTheme(sheetContext)
+        val palette = io.nekohasekai.sagernet.utils.Theme.palette(sheetContext)
+        val isPureBlack = palette.id == io.nekohasekai.sagernet.utils.Theme.BLACK
+        val isWhite = palette.id == io.nekohasekai.sagernet.utils.Theme.WHITE
 
+        // Pure black / white keep their hand-tuned greys; tinted dark bases use their own card and text colours.
         val cardBgColor = when {
-            isNight -> android.graphics.Color.parseColor("#1E1E1E")
+            isPureBlack -> android.graphics.Color.parseColor("#1E1E1E")
+            palette.dark -> palette.card
             isWhite -> android.graphics.Color.parseColor("#F5F6F8")
             else -> null
         }
         val strokeColor = when {
-            isNight -> android.graphics.Color.parseColor("#333333")
+            isPureBlack -> android.graphics.Color.parseColor("#333333")
+            palette.dark -> androidx.core.graphics.ColorUtils.blendARGB(palette.card, android.graphics.Color.WHITE, 0.12f)
             isWhite -> android.graphics.Color.parseColor("#E0E0E0")
             else -> null
         }
         val primaryTextColor = when {
-            isNight -> android.graphics.Color.parseColor("#F5F5F5")
+            isPureBlack -> android.graphics.Color.parseColor("#F5F5F5")
+            palette.dark -> palette.textPrimary
             isWhite -> android.graphics.Color.parseColor("#1A1A1A")
             else -> null
         }
         val secondaryTextColor = when {
-            isNight -> android.graphics.Color.parseColor("#B0B0B0")
+            isPureBlack -> android.graphics.Color.parseColor("#B0B0B0")
+            palette.dark -> palette.textSecondary
             isWhite -> android.graphics.Color.parseColor("#5A5A5A")
             else -> null
         }

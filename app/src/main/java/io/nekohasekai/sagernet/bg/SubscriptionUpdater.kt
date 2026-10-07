@@ -3,7 +3,9 @@ package io.nekohasekai.sagernet.bg
 import android.content.Context
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.work.Constraints
 import androidx.work.Data
+import androidx.work.NetworkType
 import androidx.work.ExistingPeriodicWorkPolicy.UPDATE
 import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkerParameters
@@ -87,6 +89,10 @@ object SubscriptionUpdater {
                     .apply {
                         if (minInitDelay > 0) setInitialDelay(minInitDelay, TimeUnit.SECONDS)
                     }
+                    // Battery: don't wake the device for an update that cannot reach the network anyway.
+                    .setConstraints(
+                        Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+                    )
                     .build()
             ).awaitResult()
             Logs.d("SubscriptionUpdater: work enqueued")
@@ -117,26 +123,35 @@ object SubscriptionUpdater {
                 subscriptions = subscriptions.filter { !it.subscription!!.updateWhenConnectedOnly }
             }
 
-            if (subscriptions.isNotEmpty()) for (profile in subscriptions) {
-                val subscription = profile.subscription!!
+            try {
+                for (profile in subscriptions) {
+                    val subscription = profile.subscription!!
 
-                if (((System.currentTimeMillis() / 1000).toInt() - subscription.lastUpdated) < subscription.autoUpdateDelay * 60) {
-                    Logs.d("work: not updating " + profile.displayName())
-                    continue
-                }
-                Logs.d("work: updating " + profile.displayName())
+                    if (((System.currentTimeMillis() / 1000).toInt() - subscription.lastUpdated) < subscription.autoUpdateDelay * 60) {
+                        Logs.d("work: not updating " + profile.displayName())
+                        continue
+                    }
+                    Logs.d("work: updating " + profile.displayName())
 
-                notification.setContentText(
-                    applicationContext.getString(
-                        R.string.subscription_update_message, profile.displayName()
+                    notification.setContentText(
+                        applicationContext.getString(
+                            R.string.subscription_update_message, profile.displayName()
+                        )
                     )
-                )
-                nm.notify(2, notification.build())
+                    nm.notify(2, notification.build())
 
-                GroupUpdater.executeUpdate(profile, false)
+                    // one failing subscription must not stop the others or leave the progress notification behind
+                    try {
+                        GroupUpdater.executeUpdate(profile, false)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        Logs.w("work: update failed for " + profile.displayName(), e)
+                    }
+                }
+            } finally {
+                nm.cancel(2)
             }
-
-            nm.cancel(2)
 
             return Result.success()
         }

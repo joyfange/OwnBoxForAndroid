@@ -27,6 +27,7 @@ class TrafficLooper
 
     private var job: Job? = null
     private var lastSpeedSnapshot: SpeedDisplayData? = null
+    @Volatile
     private var wakeupSignal: CompletableDeferred<Unit>? = null
 
     fun triggerWakeup() {
@@ -213,7 +214,11 @@ class TrafficLooper
                 delay(if (isForegroundUI) baseDelayMs else 3000L)
                 continue
             }
-            if (!proxy.isInitialized()) continue
+            if (!proxy.isInitialized()) {
+                // was a bare `continue`: a tight busy loop (100% of a core) until the core finished starting
+                delay(200L)
+                continue
+            }
 
             val snapshot = withStateLock {
                 val currentConfig = proxy.safeConfig ?: return@withStateLock null

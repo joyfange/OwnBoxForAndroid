@@ -132,7 +132,7 @@ class ServiceNotification(
 
         val showGroup = DataStore.showGroupInNotification
         val group = if (currentProfile != null) {
-            runCatching { SagerDatabase.groupDao.getById(currentProfile.groupId) }.getOrNull()
+            ActiveOutboundTracker.cachedGroup(currentProfile.groupId)
         } else null
 
         val leafNode = if (currentProfile != null) {

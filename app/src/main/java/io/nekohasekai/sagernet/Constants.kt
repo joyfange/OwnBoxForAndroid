@@ -14,6 +14,7 @@ object Key {
     const val USE_SYSTEM_THEME = "useSystemTheme"
     const val ACCENT_THEME = "accentTheme"
     const val ACCENT_CUSTOM_COLOR = "accentCustomColor"
+    const val BASE_CUSTOM_COLOR = "baseCustomColor"
     const val NIGHT_THEME = "nightTheme"
     const val APP_LANGUAGE = "appLanguage"
     const val SERVICE_MODE = "serviceMode"

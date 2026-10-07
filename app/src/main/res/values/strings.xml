@@ -1355,7 +1355,7 @@
     </plurals>
     <!-- theme colour dialog -->
     <string name="theme_base_section">Base theme</string>
-    <string name="theme_base_night_note">Night mode is on, so the black base is shown. Choosing a light base turns night mode off.</string>
+    <string name="theme_base_night_note">Night mode is on: dark bases show as chosen, light bases show as black. Choosing a light base turns night mode off.</string>
     <string name="theme_accent_section">Accent color</string>
     <string name="accent_default">Default</string>
     <string name="accent_blue">Blue</string>
@@ -1399,4 +1399,22 @@
     <string name="connection_route_remote_warning">This is a remote route profile: its next remote update replaces manually added rules.</string>
     <string name="connection_route_nothing">This connection has no domain, IP, package or process to match.</string>
     <string name="connection_route_saved">Rule saved to “%s”</string>
+    <string name="base_white">White</string>
+    <string name="base_light_gray">Light gray</string>
+    <string name="base_cream">Cream</string>
+    <string name="base_mint">Mint</string>
+    <string name="base_sky">Sky</string>
+    <string name="base_sakura">Sakura</string>
+    <string name="base_lavender">Lavender</string>
+    <string name="base_black">Black</string>
+    <string name="base_graphite">Graphite</string>
+    <string name="base_midnight">Midnight</string>
+    <string name="base_forest">Forest</string>
+    <string name="base_mocha">Mocha</string>
+    <string name="base_custom">Custom</string>
+    <string name="theme_base_light">Light</string>
+    <string name="theme_base_dark">Dark</string>
+    <string name="base_custom_title">Custom background</string>
+    <string name="color_picker_base_note">Pick a background colour. Light or dark is detected automatically and the cards, text and primary colour follow it.</string>
+    <string name="color_picker_base_fallback_note">On Android 10 and below the closest preset background is used.</string>
 </resources>

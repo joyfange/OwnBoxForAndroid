@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Extra base themes for the theme colour dialog (Theme.BASES). base_custom_* is replaced at runtime
+     (API 30+, ResourcesLoader via OwnBoxColorOverrides) with colours derived from the user's chosen background. -->
+<resources>
+    <!-- midnight -->
+    <color name="base_midnight_bg">#0B1220</color>
+    <color name="base_midnight_surface">#111A2C</color>
+    <color name="base_midnight_card">#16213A</color>
+    <color name="base_midnight_text_primary">#E7ECF5</color>
+    <color name="base_midnight_text_secondary">#9BA8C2</color>
+    <color name="base_midnight_primary">#8AB4F8</color>
+    <color name="base_midnight_primary_dark">#0B1220</color>
+    <color name="base_midnight_material_100">#1A2540</color>
+    <color name="base_midnight_material_300">#24304D</color>
+    <color name="base_midnight_item_shape">#1E2A44</color>
+    <color name="base_midnight_tab_unselected">#8C98B3</color>
+    <color name="base_midnight_ripple">#338AB4F8</color>
+    <color name="base_midnight_on_primary">#0B1220</color>
+    <!-- graphite -->
+    <color name="base_graphite_bg">#121212</color>
+    <color name="base_graphite_surface">#1C1C1E</color>
+    <color name="base_graphite_card">#222224</color>
+    <color name="base_graphite_text_primary">#F2F2F2</color>
+    <color name="base_graphite_text_secondary">#ABABAB</color>
+    <color name="base_graphite_primary">#E0E0E0</color>
+    <color name="base_graphite_primary_dark">#121212</color>
+    <color name="base_graphite_material_100">#222224</color>
+    <color name="base_graphite_material_300">#2E2E30</color>
+    <color name="base_graphite_item_shape">#2C2C2E</color>
+    <color name="base_graphite_tab_unselected">#9E9E9E</color>
+    <color name="base_graphite_ripple">#33FFFFFF</color>
+    <color name="base_graphite_on_primary">#121212</color>
+    <!-- mocha -->
+    <color name="base_mocha_bg">#16110D</color>
+    <color name="base_mocha_surface">#1F1813</color>
+    <color name="base_mocha_card">#271F19</color>
+    <color name="base_mocha_text_primary">#F1E7DD</color>
+    <color name="base_mocha_text_secondary">#B5A595</color>
+    <color name="base_mocha_primary">#E0B88A</color>
+    <color name="base_mocha_primary_dark">#16110D</color>
+    <color name="base_mocha_material_100">#2A211A</color>
+    <color name="base_mocha_material_300">#3A2E24</color>
+    <color name="base_mocha_item_shape">#33281F</color>
+    <color name="base_mocha_tab_unselected">#A89482</color>
+    <color name="base_mocha_ripple">#33E0B88A</color>
+    <color name="base_mocha_on_primary">#16110D</color>
+    <!-- forest -->
+    <color name="base_forest_bg">#0C1411</color>
+    <color name="base_forest_surface">#121D18</color>
+    <color name="base_forest_card">#17251F</color>
+    <color name="base_forest_text_primary">#E3EFE8</color>
+    <color name="base_forest_text_secondary">#9AB3A6</color>
+    <color name="base_forest_primary">#7FD1A8</color>
+    <color name="base_forest_primary_dark">#0C1411</color>
+    <color name="base_forest_material_100">#1A2A23</color>
+    <color name="base_forest_material_300">#24382F</color>
+    <color name="base_forest_item_shape">#1E3029</color>
+    <color name="base_forest_tab_unselected">#86A193</color>
+    <color name="base_forest_ripple">#337FD1A8</color>
+    <color name="base_forest_on_primary">#0C1411</color>
+    <!-- cream -->
+    <color name="base_cream_bg">#FAF6EE</color>
+    <color name="base_cream_surface">#FFFDF9</color>
+    <color name="base_cream_card">#FFFDF9</color>
+    <color name="base_cream_text_primary">#2B251E</color>
+    <color name="base_cream_text_secondary">#7A6E60</color>
+    <color name="base_cream_primary">#8C6A43</color>
+    <color name="base_cream_primary_dark">#FAF6EE</color>
+    <color name="base_cream_material_100">#F3ECDF</color>
+    <color name="base_cream_material_300">#E8DCC8</color>
+    <color name="base_cream_item_shape">#EFE5D3</color>
+    <color name="base_cream_tab_unselected">#9A8D7D</color>
+    <color name="base_cream_ripple">#1A8C6A43</color>
+    <color name="base_cream_on_primary">#FFFFFF</color>
+    <!-- mint -->
+    <color name="base_mint_bg">#EEF6F1</color>
+    <color name="base_mint_surface">#FFFFFF</color>
+    <color name="base_mint_card">#FFFFFF</color>
+    <color name="base_mint_text_primary">#17291F</color>
+    <color name="base_mint_text_secondary">#5B7165</color>
+    <color name="base_mint_primary">#2E7D5B</color>
+    <color name="base_mint_primary_dark">#EEF6F1</color>
+    <color name="base_mint_material_100">#E1EFE7</color>
+    <color name="base_mint_material_300">#C9E2D4</color>
+    <color name="base_mint_item_shape">#D7EADF</color>
+    <color name="base_mint_tab_unselected">#6F877A</color>
+    <color name="base_mint_ripple">#1A2E7D5B</color>
+    <color name="base_mint_on_primary">#FFFFFF</color>
+    <!-- sky -->
+    <color name="base_sky_bg">#EEF3FA</color>
+    <color name="base_sky_surface">#FFFFFF</color>
+    <color name="base_sky_card">#FFFFFF</color>
+    <color name="base_sky_text_primary">#172235</color>
+    <color name="base_sky_text_secondary">#5A6880</color>
+    <color name="base_sky_primary">#2F6FD0</color>
+    <color name="base_sky_primary_dark">#EEF3FA</color>
+    <color name="base_sky_material_100">#E2EAF6</color>
+    <color name="base_sky_material_300">#CBD9EF</color>
+    <color name="base_sky_item_shape">#D8E3F4</color>
+    <color name="base_sky_tab_unselected">#6E7C93</color>
+    <color name="base_sky_ripple">#1A2F6FD0</color>
+    <color name="base_sky_on_primary">#FFFFFF</color>
+    <!-- sakura -->
+    <color name="base_sakura_bg">#FBF1F4</color>
+    <color name="base_sakura_surface">#FFFFFF</color>
+    <color name="base_sakura_card">#FFFFFF</color>
+    <color name="base_sakura_text_primary">#2E1D23</color>
+    <color name="base_sakura_text_secondary">#7F6168</color>
+    <color name="base_sakura_primary">#C2477A</color>
+    <color name="base_sakura_primary_dark">#FBF1F4</color>
+    <color name="base_sakura_material_100">#F6E3EA</color>
+    <color name="base_sakura_material_300">#EDCAD7</color>
+    <color name="base_sakura_item_shape">#F2D7E1</color>
+    <color name="base_sakura_tab_unselected">#937680</color>
+    <color name="base_sakura_ripple">#1AC2477A</color>
+    <color name="base_sakura_on_primary">#FFFFFF</color>
+    <!-- lavender -->
+    <color name="base_lavender_bg">#F4F1FA</color>
+    <color name="base_lavender_surface">#FFFFFF</color>
+    <color name="base_lavender_card">#FFFFFF</color>
+    <color name="base_lavender_text_primary">#241E33</color>
+    <color name="base_lavender_text_secondary">#6C6482</color>
+    <color name="base_lavender_primary">#6E56CF</color>
+    <color name="base_lavender_primary_dark">#F4F1FA</color>
+    <color name="base_lavender_material_100">#EAE5F6</color>
+    <color name="base_lavender_material_300">#D8CFEF</color>
+    <color name="base_lavender_item_shape">#E2DBF3</color>
+    <color name="base_lavender_tab_unselected">#7F7795</color>
+    <color name="base_lavender_ripple">#1A6E56CF</color>
+    <color name="base_lavender_on_primary">#FFFFFF</color>
+    <!-- custom -->
+    <color name="base_custom_bg">#1B2430</color>
+    <color name="base_custom_surface">#222C3A</color>
+    <color name="base_custom_card">#283342</color>
+    <color name="base_custom_text_primary">#ECEFF4</color>
+    <color name="base_custom_text_secondary">#A3ACBA</color>
+    <color name="base_custom_primary">#9CC3F0</color>
+    <color name="base_custom_primary_dark">#1B2430</color>
+    <color name="base_custom_material_100">#273141</color>
+    <color name="base_custom_material_300">#323D4F</color>
+    <color name="base_custom_item_shape">#2C3747</color>
+    <color name="base_custom_tab_unselected">#929CAB</color>
+    <color name="base_custom_ripple">#339CC3F0</color>
+    <color name="base_custom_on_primary">#1B2430</color>
+</resources>
