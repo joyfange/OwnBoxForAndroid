@@ -3020,15 +3020,17 @@ class ConfigurationFragment @JvmOverloads constructor(
 
             private fun getItemAt(index: Int) = getItem(configurationIdList[index])
 
+            /** Whether the card's stats row (traffic / latency / speed test result) has content. */
             private fun hasMiddleRow(p: ProxyEntity): Boolean {
-                val showTraffic = p.rx + p.tx != 0L
-                val bean = p.requireBean()
-                val address = if (p.type == ProxyEntity.TYPE_BALANCER) {
-                    bean.displayAddress()
-                } else if (alwaysShowAddress && bean.name.isNotBlank()) {
-                    bean.displayAddress()
-                } else ""
-                return !((!showTraffic || p.status <= 0) && address.isBlank())
+                if (p.rx + p.tx != 0L) return true
+                if (p.status in 1..3) return true
+                val live = liveSpeedTests[p.id]
+                if (live != null && !live.done) return true
+                return SpeedTestOutcome(
+                    mode = p.speedTestMode,
+                    downloadBitsPerSecond = p.speedTestDownloadBitsPerSecond,
+                    uploadBitsPerSecond = p.speedTestUploadBitsPerSecond,
+                ).rates().isNotEmpty()
             }
 
             fun neighbourHasMiddleRow(position: Int): Boolean {
@@ -3596,6 +3598,7 @@ class ConfigurationFragment @JvmOverloads constructor(
             val profileStatus: TextView = view.findViewById(R.id.profile_status)
 
             val trafficText: TextView = view.findViewById(R.id.traffic_text)
+            private val statsRow: View = view.findViewById(R.id.stats_row)
             private val card = view as MaterialCardView
             private val selectedIndicator: View = view.findViewById(R.id.selected_indicator)
             val editButton: ImageView = view.findViewById(R.id.edit)
@@ -3779,7 +3782,6 @@ class ConfigurationFragment @JvmOverloads constructor(
 
             private fun bindTestResult(
                 proxyEntity: ProxyEntity,
-                showTraffic: Boolean,
                 speedTestText: String?,
             ) {
                 val text = SpannableStringBuilder()
@@ -3795,7 +3797,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                 when (proxyEntity.status) {
                     1 -> appendPart(
                         getString(R.string.available, proxyEntity.ping),
-                        requireContext().getColour(R.color.material_green_500),
+                        latencyColor(proxyEntity.ping),
                     )
 
                     2 -> appendPart(
@@ -3811,14 +3813,44 @@ class ConfigurationFragment @JvmOverloads constructor(
                             requireContext().getColour(R.color.material_red_500),
                         )
                     }
-
-                    else -> if (speedTestText == null && showTraffic) {
-                        appendPart(trafficText.text, secondary)
-                        trafficText.text = ""
-                    }
                 }
                 appendPart(speedTestText, secondary)
                 profileStatus.text = text
+                profileStatus.isVisible = text.isNotEmpty()
+            }
+
+            /** Green / amber / red by latency, like most proxy clients. */
+            private fun latencyColor(ping: Int): Int {
+                val ctx = requireContext()
+                return when {
+                    ping <= 0 -> ctx.getColorAttr(android.R.attr.textColorSecondary)
+                    ping < 300 -> ctx.getColour(R.color.material_green_500)
+                    ping < 800 -> ctx.getColour(R.color.material_amber_700)
+                    else -> ctx.getColour(R.color.material_red_500)
+                }
+            }
+
+            /** Compact "↑ 54 MB  ↓ 2.1 GB"; the non-breaking spaces keep each half together if it must wrap. */
+            private fun compactTraffic(tx: Long, rx: Long): String {
+                val ctx = view.context
+                return "↑\u00A0" + Formatter.formatShortFileSize(ctx, tx).replace(' ', '\u00A0') +
+                        "  ↓\u00A0" + Formatter.formatShortFileSize(ctx, rx).replace(' ', '\u00A0')
+            }
+
+            /** A group named only by a flag (e.g. "🇯🇵") gets its country name appended so the title says something. */
+            private fun cardTitle(name: String): String {
+                val trimmed = name.trim()
+                if (trimmed.length != 4) return name
+                val cps = intArrayOf(trimmed.codePointAt(0), trimmed.codePointAt(2))
+                if (cps.any { it !in 0x1F1E6..0x1F1FF }) return name
+                val region = String(charArrayOf('A' + (cps[0] - 0x1F1E6), 'A' + (cps[1] - 0x1F1E6)))
+                val country = try {
+                    Locale("", region).getDisplayCountry(Locale.getDefault())
+                } catch (e: Exception) {
+                    ""
+                }
+                return if (country.isBlank() || country.equals(region, ignoreCase = true)) name
+                else "$trimmed $country"
             }
 
             fun bind(proxyEntity: ProxyEntity) {
@@ -3827,7 +3859,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                 entity = proxyEntity
                 val bean = proxyEntity.requireBean()
 
-                profileName.text = bean.displayName()
+                profileName.text = cardTitle(bean.displayName())
                 profileType.text = proxyEntity.displayType()
                 val protocolColor = requireContext().getProtocolColor(proxyEntity.type)
                 val chipBg = android.graphics.drawable.GradientDrawable().apply {
@@ -3850,14 +3882,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                 val speedTestText = liveText ?: speedTestResultText(proxyEntity)
 
                 val showTraffic = rx + tx != 0L
-                trafficText.isVisible = showTraffic
-                if (showTraffic) {
-                    trafficText.text = view.context.getString(
-                        R.string.traffic,
-                        Formatter.formatFileSize(view.context, tx),
-                        Formatter.formatFileSize(view.context, rx)
-                    )
-                }
+                trafficText.text = if (showTraffic) compactTraffic(tx, rx) else ""
 
                 val address = if (proxyEntity.type == ProxyEntity.TYPE_BALANCER) {
                     bean.displayAddress()
@@ -3867,39 +3892,20 @@ class ConfigurationFragment @JvmOverloads constructor(
                     ""
                 }
                 profileAddress.text = address
-                profileAddress.setTextColor(requireContext().getColorAttr(android.R.attr.textColorSecondary))
+                profileAddress.isVisible = address.isNotBlank()
                 profileAddress.isSelected = true
-                // A balancer's subtitle ("策略: …") is short and must stay readable: it keeps its own width and the
-                // traffic text takes the rest (ellipsized). Server addresses keep the old split (address fills, traffic wraps).
-                val compactAddress = proxyEntity.type == ProxyEntity.TYPE_BALANCER
-                (profileAddress.layoutParams as? LinearLayout.LayoutParams)?.let { lp ->
-                    val width = if (compactAddress) ViewGroup.LayoutParams.WRAP_CONTENT else 0
-                    val weight = if (compactAddress) 0f else 1f
-                    if (lp.width != width || lp.weight != weight) {
-                        lp.width = width
-                        lp.weight = weight
-                        profileAddress.layoutParams = lp
-                    }
-                }
-                (trafficText.layoutParams as? LinearLayout.LayoutParams)?.let { lp ->
-                    val width = if (compactAddress) 0 else ViewGroup.LayoutParams.WRAP_CONTENT
-                    val weight = if (compactAddress) 1f else 0f
-                    if (lp.width != width || lp.weight != weight) {
-                        lp.width = width
-                        lp.weight = weight
-                        trafficText.layoutParams = lp
-                    }
-                }
-                val trafficRowEmpty =
-                    (!showTraffic || proxyEntity.status <= 0) && address.isBlank()
-                (trafficText.parent as View).visibility = when {
-                    !trafficRowEmpty -> View.VISIBLE
+
+                bindTestResult(proxyEntity, speedTestText)
+
+                // Stats row: traffic on the left, latency / test result on the right. In a grid, keep the row's
+                // space (INVISIBLE) when a neighbour in the same row shows one so the cards stay level.
+                val statsRowEmpty = !showTraffic && profileStatus.text.isNullOrEmpty()
+                statsRow.visibility = when {
+                    !statsRowEmpty -> View.VISIBLE
                     adapter?.neighbourHasMiddleRow(bindingAdapterPosition) == true -> View.INVISIBLE
                     else -> View.GONE
                 }
-                lastSelfHasMiddleRow = !trafficRowEmpty
-
-                bindTestResult(proxyEntity, showTraffic, speedTestText)
+                lastSelfHasMiddleRow = !statsRowEmpty
 
                 editButton.isGone = true
                 shareLayout.isGone = true
@@ -3938,19 +3944,8 @@ class ConfigurationFragment @JvmOverloads constructor(
                     return
                 }
 
-                val traffic = view.context.getString(
-                    R.string.traffic,
-                    Formatter.formatFileSize(view.context, proxyEntity.tx),
-                    Formatter.formatFileSize(view.context, proxyEntity.rx)
-                )
-                if (proxyEntity.status <= 0 && speedTestResultText(proxyEntity) == null) {
-                    if (profileStatus.text?.toString() != traffic) {
-                        profileStatus.text = traffic
-                        profileStatus.setTextColor(
-                            requireContext().getColorAttr(android.R.attr.textColorSecondary)
-                        )
-                    }
-                } else if (trafficText.text?.toString() != traffic) {
+                val traffic = compactTraffic(proxyEntity.tx, proxyEntity.rx)
+                if (trafficText.text?.toString() != traffic) {
                     trafficText.text = traffic
                 }
                 lastBoundTx = proxyEntity.tx
