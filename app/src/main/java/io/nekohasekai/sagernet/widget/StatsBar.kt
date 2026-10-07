@@ -126,11 +126,31 @@ class StatsBar @JvmOverloads constructor(
         override fun slideUp(child: BottomAppBar) {
             if (!allowShow) return
             super.slideUp(child)
+            notifyBarVisible(true)
         }
+
+        override fun slideDown(child: BottomAppBar) {
+            super.slideDown(child)
+            notifyBarVisible(false)
+        }
+    }
+
+    /** False while the bar is slid out (or on its way out). */
+    private var barShown = false
+
+    private fun notifyBarVisible(shown: Boolean) {
+        barShown = shown
+        (activityOrNull() as? MainActivity)?.onStatsBarVisibilityChanged(shown)
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         super.onLayout(changed, left, top, right, bottom)
+        // The bar grows once the navigation-bar inset arrives; a bar already slid out by its old height would then
+        // peek above the screen edge (seen on pages without the bar, e.g. Settings in night mode).
+        if (changed && !barShown && !allowShow && height > 0 && translationY != 0f && translationY < height) {
+            animate().cancel()
+            translationY = height.toFloat()
+        }
         val transition = pendingTransition
         if (transition != null) {
             pendingTransition = null

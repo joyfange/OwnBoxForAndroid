@@ -24,6 +24,7 @@ import androidx.core.graphics.ColorUtils
 import androidx.core.view.GravityCompat
 import androidx.core.view.WindowCompat
 import androidx.drawerlayout.widget.DrawerLayout
+import androidx.fragment.app.Fragment
 import androidx.preference.PreferenceDataStore
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.navigation.NavigationView
@@ -99,9 +100,10 @@ class MainActivity : ThemedActivity(),
             if (ColorUtils.calculateContrast(Color.WHITE, fabBgColor or 0xFF000000.toInt()) < 3.0) Color.BLACK
             else Color.WHITE
         )
-        // The stats bar (BottomAppBar) already pads itself for the navigation bar and draws under it, so a
-        // transparent navigation bar lets the bar's colour run to the screen edge instead of a separate strip.
-        window.navigationBarColor = Color.TRANSPARENT
+        // The navigation bar takes the colour of whatever sits right above it (see updateNavigationBar): a fully
+        // transparent bar is drawn with a white scrim by some ROMs (HyperOS / MIUI) on light themes, and on dark
+        // themes it let a hidden stats bar peek through.
+        updateNavigationBar()
         if (!Theme.isBlackTheme(this)) {
             navigation = binding.navView
             binding.drawerLayout.removeView(binding.navViewBlack)
@@ -115,11 +117,11 @@ class MainActivity : ThemedActivity(),
         if (savedInstanceState == null) {
             displayFragmentWithId(R.id.nav_configuration)
         } else {
-            currentMainFragment =
-                supportFragmentManager.findFragmentById(R.id.fragment_holder) as? ToolbarFragment
+            currentMainFragment = visiblePage()
         }
+        schedulePagePrewarm()
         onBackPressedDispatcher.addCallback {
-            val fragment = supportFragmentManager.findFragmentById(R.id.fragment_holder) as? ToolbarFragment
+            val fragment = currentMainFragment ?: visiblePage()
             if (fragment?.onBackPressed() == true) return@addCallback
             if (fragment is ConfigurationFragment) {
                 moveTaskToBack(true)
@@ -145,9 +147,7 @@ class MainActivity : ThemedActivity(),
         }
 
         setContentView(binding.root)
-        currentMainFragment =
-            supportFragmentManager.findFragmentById(R.id.fragment_holder) as? ToolbarFragment
-                ?: currentMainFragment
+        currentMainFragment = visiblePage() ?: currentMainFragment
         if (!animateInitialControls) {
             syncMainControls(showWhenConnected = false, animate = false)
         }
@@ -275,8 +275,7 @@ class MainActivity : ThemedActivity(),
 
     override fun onPostResume() {
         super.onPostResume()
-        val restoredFragment =
-            supportFragmentManager.findFragmentById(R.id.fragment_holder) as? ToolbarFragment
+        val restoredFragment = visiblePage()
         if (restoredFragment != null && restoredFragment !== currentMainFragment) {
             currentMainFragment = restoredFragment
             syncMainControls(
@@ -480,8 +479,7 @@ class MainActivity : ThemedActivity(),
     }
 
     fun isCurrentFragment(@IdRes id: Int): Boolean {
-        val current = currentMainFragment
-            ?: supportFragmentManager.findFragmentById(R.id.fragment_holder)
+        val current = currentMainFragment ?: visiblePage()
         return when (id) {
             R.id.nav_configuration -> current is ConfigurationFragment
             R.id.nav_group -> current is GroupFragment
@@ -512,23 +510,41 @@ class MainActivity : ThemedActivity(),
         menu.findItem(id)?.isChecked = true
     }
 
-    /** Keeps the navigation-bar icons readable over the stats bar colour. */
+    private var statsBarColor = 0
+    private var statsBarVisible = false
+
+    /** The stats bar recoloured itself (theme change). */
     fun onStatsBarColorChanged(color: Int) {
+        statsBarColor = color
+        updateNavigationBar()
+    }
+
+    /** The stats bar slid in or out: the navigation bar follows it. */
+    fun onStatsBarVisibilityChanged(visible: Boolean) {
+        if (statsBarVisible == visible) return
+        statsBarVisible = visible
+        updateNavigationBar()
+    }
+
+    /**
+     * Paints the navigation bar in the colour right above it, the stats bar when it is up and the page background
+     * otherwise, so the bottom of the screen is one surface with no white or black strip, and keeps its icons
+     * readable on that colour.
+     */
+    private fun updateNavigationBar() {
+        val color = (if (statsBarVisible && statsBarColor != 0) statsBarColor
+        else getColorAttr(android.R.attr.colorBackground)) or 0xFF000000.toInt()
+        if (window.navigationBarColor != color) window.navigationBarColor = color
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val light = ColorUtils.calculateLuminance(color or 0xFF000000.toInt()) > 0.45
+        val light = ColorUtils.calculateLuminance(color) > 0.45
         val controller = WindowCompat.getInsetsController(window, window.decorView)
         if (controller.isAppearanceLightNavigationBars != light) controller.isAppearanceLightNavigationBars = light
     }
 
-    /** Page picked in the drawer, shown once the drawer has finished closing (see [drawerNavigator]). */
+    /** Page picked in the drawer that still has to be built; shown once the drawer has closed. */
     @IdRes
     private var pendingNavigationId = 0
 
-    /**
-     * Swapping the page while the drawer is still sliding shut makes the new page inflate, bind and lay out on the
-     * same frames as the close animation, which is what made the drawer stutter. The swap now waits for the drawer
-     * to be fully closed, so the animation runs alone and the page appears right after it.
-     */
     private val drawerNavigator = object : DrawerLayout.SimpleDrawerListener() {
         override fun onDrawerClosed(drawerView: View) {
             runPendingNavigation()
@@ -542,6 +558,11 @@ class MainActivity : ThemedActivity(),
         if (!isFinishing && !isDestroyed && !isCurrentFragment(id)) displayFragmentWithId(id)
     }
 
+    /**
+     * A page already built (kept alive, see [KEPT_PAGES]) is shown at once, while the drawer slides shut over it.
+     * A page that still has to be inflated waits until the drawer has closed, so its inflation never lands on the
+     * frames of the close animation (that was the stutter when opening Route or Settings).
+     */
     override fun onNavigationItemSelected(item: MenuItem): Boolean {
         val id = item.itemId
         val drawer = binding.drawerLayout
@@ -550,8 +571,11 @@ class MainActivity : ThemedActivity(),
             drawer.closeDrawers()
             return true
         }
-        if (id == R.id.nav_faq || !drawer.isDrawerVisible(GravityCompat.START)) {
-            return displayFragmentWithId(id)
+        if (id == R.id.nav_faq || !drawer.isDrawerVisible(GravityCompat.START) || isPageReady(id)) {
+            pendingNavigationId = 0
+            val shown = displayFragmentWithId(id)
+            drawer.closeDrawer(GravityCompat.START)
+            return shown
         }
         pendingNavigationId = id
         setCheckedItem(id)
@@ -559,21 +583,116 @@ class MainActivity : ThemedActivity(),
         return true
     }
 
+    private fun pageTag(@IdRes id: Int) = "page:$id"
+
+    /** The page on screen: the one fragment in the holder that is added and not hidden. */
+    private fun visiblePage(): ToolbarFragment? = supportFragmentManager.fragments.lastOrNull {
+        it.id == R.id.fragment_holder && it.isAdded && !it.isHidden
+    } as? ToolbarFragment
+
+    /**
+     * Settings can change how the profile list is drawn (card style, addresses, tabs...), so after a visit to
+     * Settings the kept profile list is rebuilt instead of shown as it was.
+     */
+    private var configurationStale = false
+
+    private fun isPageReady(@IdRes id: Int): Boolean {
+        if (id !in KEPT_PAGES) return false
+        if (id == R.id.nav_configuration && configurationStale) return false
+        return supportFragmentManager.findFragmentByTag(pageTag(id))?.view != null
+    }
+
+    private fun newPage(@IdRes id: Int): ToolbarFragment? = when (id) {
+        R.id.nav_configuration -> ConfigurationFragment()
+        R.id.nav_group -> GroupFragment()
+        R.id.nav_route -> RouteFragment()
+        R.id.nav_settings -> SettingsFragment()
+        R.id.nav_dashboard -> WebviewFragment()
+        R.id.nav_tools -> ToolsFragment()
+        R.id.nav_logcat -> LogcatFragment()
+        R.id.nav_connections -> ConnectionsFragment()
+        R.id.nav_docs -> DocsFragment()
+        R.id.nav_about -> AboutFragment()
+        else -> null
+    }
+
+    /**
+     * Shows page [id]. The main pages are kept (hidden, not destroyed) when you leave them, so going back to them
+     * is instant; live pages (logs, connections, dashboard) are removed so they stop polling in the background.
+     */
+    private fun showPage(@IdRes id: Int): Boolean {
+        val fm = supportFragmentManager
+        val tag = pageTag(id)
+        var target = fm.findFragmentByTag(tag) as? ToolbarFragment
+        val tx = fm.beginTransaction().setReorderingAllowed(true)
+        var stale: Fragment? = null
+        if (target != null && id == R.id.nav_configuration && configurationStale) {
+            stale = target
+            tx.remove(target)
+            target = null
+        }
+        if (id == R.id.nav_configuration) configurationStale = false
+        if (id == R.id.nav_settings) configurationStale = true
+        val reuse = target != null
+        if (target == null) target = newPage(id) ?: return false
+        tx.setCustomAnimations(R.anim.page_enter, 0)
+        for (f in fm.fragments) {
+            if (f === target || f === stale || f.id != R.id.fragment_holder) continue
+            val keptId = KEPT_PAGES.firstOrNull { pageTag(it) == f.tag }
+            if (keptId != null) {
+                if (!f.isHidden) tx.hide(f)
+            } else {
+                tx.remove(f)
+            }
+        }
+        if (reuse) tx.show(target) else tx.add(R.id.fragment_holder, target, tag)
+        tx.commitAllowingStateLoss()
+        // a page built while hidden may have missed the window insets (toolbar / navigation-bar padding)
+        if (reuse) target.view?.let { androidx.core.view.ViewCompat.requestApplyInsets(it) }
+        currentMainFragment = target
+        syncMainControls(target, showWhenConnected = false, animate = true)
+        return true
+    }
+
+    /**
+     * Builds Route and Settings in the background once the main screen is idle, hidden, so their first visit is as
+     * instant as any later one.
+     */
+    private fun schedulePagePrewarm() {
+        binding.root.postDelayed({
+            if (isFinishing || isDestroyed) return@postDelayed
+            android.os.Looper.myQueue().addIdleHandler(object : android.os.MessageQueue.IdleHandler {
+                val queue = ArrayDeque(PREWARM_PAGES)
+                override fun queueIdle(): Boolean {
+                    if (isFinishing || isDestroyed || supportFragmentManager.isStateSaved) return false
+                    val id = queue.removeFirstOrNull() ?: return false
+                    val fm = supportFragmentManager
+                    if (fm.findFragmentByTag(pageTag(id)) == null && !isCurrentFragment(id)) {
+                        val page = newPage(id) ?: return queue.isNotEmpty()
+                        fm.beginTransaction()
+                            .setReorderingAllowed(true)
+                            .add(R.id.fragment_holder, page, pageTag(id))
+                            .hide(page)
+                            .commitAllowingStateLoss()
+                    }
+                    return queue.isNotEmpty()
+                }
+            })
+        }, PREWARM_DELAY_MS)
+    }
 
     @SuppressLint("CommitTransaction")
     fun displayFragment(fragment: ToolbarFragment) {
         currentMainFragment = fragment
-        supportFragmentManager.beginTransaction()
-            .setReorderingAllowed(true)
-            .replace(R.id.fragment_holder, fragment)
-            .commitAllowingStateLoss()
+        val tx = supportFragmentManager.beginTransaction().setReorderingAllowed(true)
+        for (f in supportFragmentManager.fragments) if (f.id == R.id.fragment_holder) tx.remove(f)
+        tx.add(R.id.fragment_holder, fragment).commitAllowingStateLoss()
         if (binding.drawerLayout.isDrawerVisible(GravityCompat.START)) binding.drawerLayout.closeDrawers()
         syncMainControls(fragment, showWhenConnected = false, animate = true)
     }
 
     private fun syncMainControls(
-        fragment: Any? = currentMainFragment
-            ?: supportFragmentManager.findFragmentById(R.id.fragment_holder),
+        fragment: Any? = currentMainFragment ?: visiblePage(),
         showWhenConnected: Boolean,
         animate: Boolean,
     ) {
@@ -603,8 +722,7 @@ class MainActivity : ThemedActivity(),
     }
 
     private fun refreshConfigurationProfileState() {
-        val fragment = currentMainFragment
-            ?: supportFragmentManager.findFragmentById(R.id.fragment_holder)
+        val fragment = currentMainFragment ?: visiblePage()
         (fragment as? ConfigurationFragment)?.refreshProfileState()
     }
 
@@ -613,29 +731,11 @@ class MainActivity : ThemedActivity(),
     }
 
     fun displayFragmentWithId(@IdRes id: Int): Boolean {
-        when (id) {
-            R.id.nav_configuration -> {
-                displayFragment(ConfigurationFragment())
-            }
-
-            R.id.nav_group -> displayFragment(GroupFragment())
-            R.id.nav_route -> displayFragment(RouteFragment())
-            R.id.nav_settings -> displayFragment(SettingsFragment())
-            R.id.nav_dashboard -> displayFragment(WebviewFragment())
-            R.id.nav_tools -> displayFragment(ToolsFragment())
-            R.id.nav_logcat -> displayFragment(LogcatFragment())
-            R.id.nav_connections -> displayFragment(ConnectionsFragment())
-            R.id.nav_faq -> {
-                launchCustomTab("https://t.me/OwnBoxs")
-                return false
-            }
-
-            R.id.nav_docs -> displayFragment(DocsFragment())
-
-            R.id.nav_about -> displayFragment(AboutFragment())
-
-            else -> return false
+        if (id == R.id.nav_faq) {
+            launchCustomTab("https://t.me/OwnBoxs")
+            return false
         }
+        if (!showPage(id)) return false
         setCheckedItem(id)
         return true
     }
@@ -730,9 +830,8 @@ class MainActivity : ThemedActivity(),
                         showWhenConnected = DataStore.showBottomBar,
                         animate = true,
                     )
-                    when (val fragment = currentMainFragment
-                        ?: supportFragmentManager.findFragmentById(R.id.fragment_holder)
-                    ) {
+                    // kept (hidden) pages need the new padding too
+                    for (fragment in supportFragmentManager.fragments) when (fragment) {
                         is GroupFragment -> fragment.updateBottomPadding()
                         is RouteFragment -> fragment.updateBottomPadding()
                     }
@@ -787,9 +886,18 @@ class MainActivity : ThemedActivity(),
         if (super.onKeyDown(keyCode, event)) return true
         if (binding.drawerLayout.isOpen) return false
 
-        val fragment =
-            supportFragmentManager.findFragmentById(R.id.fragment_holder) as? ToolbarFragment
+        val fragment = currentMainFragment ?: visiblePage()
         return fragment != null && fragment.onKeyDown(keyCode, event)
     }
 
+
+    companion object {
+        /** Pages kept alive (hidden) when you leave them. */
+        private val KEPT_PAGES = setOf(
+            R.id.nav_configuration, R.id.nav_group, R.id.nav_route, R.id.nav_settings,
+            R.id.nav_tools, R.id.nav_docs, R.id.nav_about,
+        )
+        private val PREWARM_PAGES = listOf(R.id.nav_route, R.id.nav_settings, R.id.nav_group)
+        private const val PREWARM_DELAY_MS = 1500L
+    }
 }

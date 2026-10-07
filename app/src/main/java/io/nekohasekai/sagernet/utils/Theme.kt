@@ -473,14 +473,17 @@ object Theme {
 
     fun getDialogTheme(theme: Int): Int = styleOf(if (isBaseTheme(theme)) theme else LIGHT_GRAY, true)
 
+    /**
+     * Whether the SYSTEM is in dark mode. Reads the system configuration, not the activity's: once night mode had
+     * been forced on, AppCompat rewrites the activity's uiMode to night, so "follow system" read that override back
+     * and stayed dark (or light) after the system had switched.
+     */
+    @Suppress("UNUSED_PARAMETER")
     fun isSystemNight(context: Context = app): Boolean {
-        val ctxUiMode = (context as? android.app.Activity)?.resources?.configuration?.uiMode
-            ?: context.resources?.configuration?.uiMode
-        if (ctxUiMode != null && (ctxUiMode and Configuration.UI_MODE_NIGHT_MASK) != Configuration.UI_MODE_NIGHT_UNDEFINED) {
-            return (ctxUiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-        }
-        val sysUiMode = android.content.res.Resources.getSystem().configuration.uiMode
-        return (sysUiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val sysUiMode = android.content.res.Resources.getSystem().configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+        if (sysUiMode != Configuration.UI_MODE_NIGHT_UNDEFINED) return sysUiMode == Configuration.UI_MODE_NIGHT_YES
+        val appUiMode = app.applicationContext.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+        return appUiMode == Configuration.UI_MODE_NIGHT_YES
     }
 
     fun isWhiteTheme(context: Context = app): Boolean = currentBaseId(context) == WHITE
@@ -530,15 +533,16 @@ object Theme {
     }
 
     fun applyNightTheme() {
-        if (DataStore.nightTheme == 0) {
-            AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
-        } else if (DataStore.nightTheme == 1 || isDarkBaseId(selectedBaseId())) {
-            AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
-        } else if (DataStore.nightTheme == 2) {
-            AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
-        } else {
-            AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
+        val mode = when (DataStore.nightTheme) {
+            1 -> AppCompatDelegate.MODE_NIGHT_YES
+            2 -> if (isDarkBaseId(selectedBaseId())) AppCompatDelegate.MODE_NIGHT_YES else AppCompatDelegate.MODE_NIGHT_NO
+            // 0 follow system, 3 auto: both track the system setting
+            else -> if (isDarkBaseId(selectedBaseId()) && !usingNightMode()) AppCompatDelegate.MODE_NIGHT_YES
+            else AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
         }
+        // setDefaultNightMode recreates every activity when the mode changes, so only call it on a real change
+        if (AppCompatDelegate.getDefaultNightMode() != mode) AppCompatDelegate.setDefaultNightMode(mode)
     }
+
 
 }
