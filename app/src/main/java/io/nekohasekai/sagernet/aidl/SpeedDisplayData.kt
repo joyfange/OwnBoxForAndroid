@@ -15,4 +15,8 @@ data class SpeedDisplayData(
     // Outbound "bypass" usage is not counted
     var txTotal: Long = 0L,
     var rxTotal: Long = 0L,
+
+    // Bytes for the current session through the direct ("bypass") outbound
+    var txTotalDirect: Long = 0L,
+    var rxTotalDirect: Long = 0L,
 ) : Parcelable

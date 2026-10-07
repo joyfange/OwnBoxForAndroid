@@ -324,7 +324,9 @@ class TrafficLooper
                         if (showDirectSpeed) itemBypass.txRate else 0L,
                         if (showDirectSpeed) itemBypass.rxRate else 0L,
                         mainTx,
-                        mainRx
+                        mainRx,
+                        txTotalDirect = itemBypass.tx - itemBypass.txBase,
+                        rxTotalDirect = itemBypass.rx - itemBypass.rxBase,
                     ),
                     trafficUpdates = trafficUpdates,
                 )

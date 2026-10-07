@@ -67,6 +67,8 @@ class ServiceNotification(
     private var lastBigText: String? = null
     private var lastRegion: String? = null
     private var lastDirectSpeed: String? = null
+    /** Session total (proxy + direct) shown in the notification header next to the app name. */
+    private var lastTotal: String? = null
 
     private fun applyLiveUpdateCapsule(
         builder: NotificationCompat.Builder,
@@ -105,8 +107,8 @@ class ServiceNotification(
             putString("live_activity_status", if (state == BaseService.State.Connected) "active" else "pending")
         }
 
-        // 彻底清空 subText，避免系统在标题右侧强行并排追加网速文本
-        builder.setSubText(null)
+        // 头部（应用名旁）只显示本次会话总流量 "x↑ y↓"（代理 + 直连），网速仍在正文中显示
+        builder.setSubText(if (state == BaseService.State.Connected) lastTotal else null)
     }
 
     suspend fun postStateUpdate(state: BaseService.State) {
@@ -122,6 +124,11 @@ class ServiceNotification(
 
         val proxySpeed = "↑${Formatter.formatFileSize(ctx, stats.txRateProxy)}/s ↓${Formatter.formatFileSize(ctx, stats.rxRateProxy)}/s"
         val directSpeed = "↑${Formatter.formatFileSize(ctx, stats.txRateDirect)}/s ↓${Formatter.formatFileSize(ctx, stats.rxRateDirect)}/s"
+        val totalTraffic = ctx.getString(
+            R.string.traffic,
+            Formatter.formatFileSize(ctx, (stats.txTotal + stats.txTotalDirect).coerceAtLeast(0L)),
+            Formatter.formatFileSize(ctx, (stats.rxTotal + stats.rxTotalDirect).coerceAtLeast(0L))
+        )
 
         val showGroup = DataStore.showGroupInNotification
         val group = if (currentProfile != null) {
@@ -154,7 +161,8 @@ class ServiceNotification(
                         (texts.collapsedText != lastText) ||
                         (texts.bigText != lastBigText) ||
                         (currentRegion != lastRegion) ||
-                        (directSpeed != lastDirectSpeed)
+                        (directSpeed != lastDirectSpeed) ||
+                        (totalTraffic != lastTotal)
         if (!isChanged) return
 
         lastTitle = texts.title
@@ -162,6 +170,7 @@ class ServiceNotification(
         lastBigText = texts.bigText
         lastRegion = currentRegion
         lastDirectSpeed = directSpeed
+        lastTotal = totalTraffic
 
         useBuilder {
             if (texts.title.isNotBlank()) {
