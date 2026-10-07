@@ -167,38 +167,67 @@ class ExpandablePreferenceCategory @JvmOverloads constructor(
     }
 
     override fun onSaveInstanceState(): Parcelable {
-        val superState = super.onSaveInstanceState()
-        val myState = SavedState(superState)
+        val myState = SavedState(super.onSaveInstanceState())
         myState.isExpanded = isExpanded
         return myState
     }
 
     override fun onRestoreInstanceState(state: Parcelable?) {
-        if (state == null || state.javaClass != SavedState::class.java) {
+        if (state !is SavedState) {
             super.onRestoreInstanceState(state)
             return
         }
-        val myState = state as SavedState
-        super.onRestoreInstanceState(myState.superState)
-        setExpanded(myState.isExpanded)
+        super.onRestoreInstanceState(state.superState)
+        setExpanded(state.isExpanded)
     }
 
-    private class SavedState : BaseSavedState {
+    /**
+     * Self-contained saved state. The previous version extended
+     * Preference.BaseSavedState, whose Parcel constructor reads the nested
+     * super state (androidx.preference.PreferenceGroup$SavedState) with the
+     * boot class loader. When the system restores the activity (freeform
+     * window, process death, MIUI) that lookup fails with
+     * BadParcelableException and the app crashes on launch.
+     * Here the nested state is always read with the app's class loader, and a
+     * state that still cannot be read is dropped instead of crashing.
+     */
+    private class SavedState : Parcelable {
+        val superState: Parcelable?
         var isExpanded: Boolean = false
 
-        constructor(source: Parcel) : super(source) {
-            isExpanded = source.readInt() == 1
+        constructor(superState: Parcelable?) {
+            this.superState = superState
         }
 
-        constructor(superState: Parcelable?) : super(superState)
+        constructor(source: Parcel, loader: ClassLoader?) {
+            val cl = loader ?: SavedState::class.java.classLoader
+            superState = try {
+                @Suppress("DEPRECATION")
+                source.readParcelable(cl)
+            } catch (e: Exception) {
+                null
+            }
+            isExpanded = try {
+                source.readInt() == 1
+            } catch (e: Exception) {
+                false
+            }
+        }
+
+        override fun describeContents(): Int = 0
 
         override fun writeToParcel(dest: Parcel, flags: Int) {
-            super.writeToParcel(dest, flags)
+            dest.writeParcelable(superState, flags)
             dest.writeInt(if (isExpanded) 1 else 0)
         }
 
-        companion object CREATOR : Parcelable.Creator<SavedState> {
-            override fun createFromParcel(source: Parcel): SavedState = SavedState(source)
+        companion object CREATOR : Parcelable.ClassLoaderCreator<SavedState> {
+            override fun createFromParcel(source: Parcel, loader: ClassLoader?): SavedState =
+                SavedState(source, loader)
+
+            override fun createFromParcel(source: Parcel): SavedState =
+                SavedState(source, null)
+
             override fun newArray(size: Int): Array<SavedState?> = arrayOfNulls(size)
         }
     }
