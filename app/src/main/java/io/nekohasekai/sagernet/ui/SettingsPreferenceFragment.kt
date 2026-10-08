@@ -31,6 +31,182 @@ import libcore.Libcore
 
 class SettingsPreferenceFragment : PreferenceFragmentCompat(), OnPreferenceDataStoreChangeListener {
 
+    // ---- 按 Wi‑Fi 自动开关：定位权限（读 Wi‑Fi 名称必需） ----
+    private var pendingWifiAction: (() -> Unit)? = null
+
+    private val fineLocationLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        if (result[android.Manifest.permission.ACCESS_FINE_LOCATION] == true) {
+            requestBackgroundLocationIfNeeded()
+        } else {
+            pendingWifiAction = null
+            showWifiPermissionDenied()
+        }
+    }
+
+    private val backgroundLocationLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) {
+            Toast.makeText(
+                requireContext(),
+                "没有「始终允许」定位时，App 在后台读不到 Wi‑Fi 名称，自动开关可能不生效",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+        runPendingWifiAction()
+    }
+
+    private fun runPendingWifiAction() {
+        val action = pendingWifiAction
+        pendingWifiAction = null
+        action?.invoke()
+    }
+
+    private fun ensureWifiPermissions(then: () -> Unit) {
+        val ctx = requireContext()
+        pendingWifiAction = then
+        if (!io.nekohasekai.sagernet.bg.WifiAutoSwitch.hasLocationPermission(ctx)) {
+            MaterialAlertDialogBuilder(ctx)
+                .setTitle("需要定位权限")
+                .setMessage("Android 只在授予定位权限后才告诉 App 当前 Wi‑Fi 的名称。OwnBox 只用它判断是否连着信任的 Wi‑Fi，不会记录或上传位置。")
+                .setPositiveButton(android.R.string.ok) { _, _ ->
+                    fineLocationLauncher.launch(
+                        arrayOf(
+                            android.Manifest.permission.ACCESS_FINE_LOCATION,
+                            android.Manifest.permission.ACCESS_COARSE_LOCATION,
+                        )
+                    )
+                }
+                .setNegativeButton(android.R.string.cancel) { _, _ -> pendingWifiAction = null }
+                .show()
+            return
+        }
+        requestBackgroundLocationIfNeeded()
+    }
+
+    private fun requestBackgroundLocationIfNeeded() {
+        val ctx = context ?: return
+        if (io.nekohasekai.sagernet.bg.WifiAutoSwitch.hasBackgroundLocationPermission(ctx)) {
+            runPendingWifiAction()
+            return
+        }
+        MaterialAlertDialogBuilder(ctx)
+            .setTitle("允许在后台读取 Wi‑Fi")
+            .setMessage("回家、出门时 App 通常在后台。请在接下来的页面里把定位权限改成「始终允许」，否则自动开关只在打开 App 时生效。")
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                if (Build.VERSION.SDK_INT >= 29) {
+                    backgroundLocationLauncher.launch(android.Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                } else {
+                    runPendingWifiAction()
+                }
+            }
+            .setNegativeButton("暂不") { _, _ -> runPendingWifiAction() }
+            .show()
+    }
+
+    private fun showWifiPermissionDenied() {
+        val ctx = context ?: return
+        MaterialAlertDialogBuilder(ctx)
+            .setTitle("没有定位权限")
+            .setMessage("读不到 Wi‑Fi 名称，按 Wi‑Fi 自动开关无法工作。可以在系统设置 → 应用 → OwnBox → 权限里打开定位。")
+            .setPositiveButton("去设置") { _, _ ->
+                runCatching {
+                    startActivity(
+                        Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                            .setData(Uri.fromParts("package", ctx.packageName, null))
+                    )
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun maybeWarnBatteryOptimization() {
+        val ctx = context ?: return
+        if (io.nekohasekai.sagernet.bg.WifiAutoSwitch.isIgnoringBatteryOptimizations(ctx)) return
+        MaterialAlertDialogBuilder(ctx)
+            .setTitle("建议关闭电池优化")
+            .setMessage("离开信任 Wi‑Fi 时要在后台自动重新连接，Android 12 起需要 OwnBox 不受电池优化限制；否则会发一条通知，点一下再连。")
+            .setPositiveButton("去关闭") { _, _ ->
+                runCatching {
+                    @Suppress("BatteryLife")
+                    startActivity(
+                        Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                            .setData(Uri.parse("package:${ctx.packageName}"))
+                    )
+                }
+            }
+            .setNegativeButton("以后再说", null)
+            .show()
+    }
+
+    private fun setupWifiAutoSwitch() {
+        val autoSwitch = findPreference<SwitchPreference>(Key.WIFI_AUTO_SWITCH) ?: return
+        val trusted = findPreference<EditTextPreference>(Key.WIFI_TRUSTED_SSIDS)
+        val addCurrent = findPreference<Preference>(Key.WIFI_ADD_CURRENT)
+
+        fun updateTrustedSummary(raw: String = DataStore.wifiTrustedSsids) {
+            val list = io.nekohasekai.sagernet.bg.WifiAutoSwitch.trustedList(raw)
+            trusted?.summary = if (list.isEmpty()) "未设置：不会自动断开" else list.joinToString("、")
+        }
+        updateTrustedSummary()
+
+        autoSwitch.setOnPreferenceChangeListener { _, newValue ->
+            val enable = newValue as Boolean
+            if (!enable) {
+                runOnDefaultDispatcher { io.nekohasekai.sagernet.bg.WifiAutoSwitch.syncRegistration() }
+                return@setOnPreferenceChangeListener true
+            }
+            ensureWifiPermissions {
+                autoSwitch.isChecked = true
+                runOnDefaultDispatcher {
+                    io.nekohasekai.sagernet.bg.WifiAutoSwitch.syncRegistration()
+                    io.nekohasekai.sagernet.bg.WifiAutoSwitch.onNetworkEvent(delayMs = 0L)
+                }
+                maybeWarnBatteryOptimization()
+            }
+            // 拿到权限后再真正打开
+            false
+        }
+
+        trusted?.setOnPreferenceChangeListener { _, newValue ->
+            val raw = io.nekohasekai.sagernet.bg.WifiAutoSwitch.trustedList(newValue as String).joinToString(", ")
+            DataStore.wifiTrustedSsids = raw
+            DataStore.wifiLastTrusted = ""
+            trusted?.text = raw
+            updateTrustedSummary(raw)
+            io.nekohasekai.sagernet.bg.WifiAutoSwitch.onNetworkEvent(delayMs = 0L)
+            false
+        }
+
+        addCurrent?.setOnPreferenceClickListener {
+            ensureWifiPermissions {
+                val ctx = context ?: return@ensureWifiPermissions
+                val ssid = io.nekohasekai.sagernet.bg.WifiAutoSwitch.currentSsid(ctx)
+                if (ssid == null) {
+                    Toast.makeText(ctx, "读不到当前 Wi‑Fi：请确认已连上 Wi‑Fi 并打开系统定位", Toast.LENGTH_LONG).show()
+                    return@ensureWifiPermissions
+                }
+                val list = io.nekohasekai.sagernet.bg.WifiAutoSwitch.trustedList().toMutableList()
+                if (list.contains(ssid)) {
+                    Toast.makeText(ctx, "「$ssid」已在信任列表里", Toast.LENGTH_SHORT).show()
+                    return@ensureWifiPermissions
+                }
+                list.add(ssid)
+                val raw = list.joinToString(", ")
+                DataStore.wifiTrustedSsids = raw
+                trusted?.text = raw
+                updateTrustedSummary(raw)
+                // 当前就在这个 Wi‑Fi 上：只记录状态，不立刻断开正在用的连接
+                DataStore.wifiLastTrusted = "1"
+                Toast.makeText(ctx, "已加入「$ssid」，下次连上它时自动断开", Toast.LENGTH_SHORT).show()
+            }
+            true
+        }
+    }
+
     private lateinit var isProxyApps: SwitchPreference
 
     private lateinit var globalCustomConfig: EditConfigPreference
@@ -55,6 +231,15 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat(), OnPreferenceDataS
 
         DataStore.configurationStore.registerChangeListener(this)
         listView.layoutManager = FixedLinearLayoutManager(listView)
+        // 展开/收起分类时：关掉整行淡入淡出的 change 动画（会让分类卡片闪一下），
+        // 插入/移动动画缩短，展开立即跟手；所有分类表现一致
+        listView.itemAnimator = androidx.recyclerview.widget.DefaultItemAnimator().apply {
+            supportsChangeAnimations = false
+            addDuration = 160L
+            removeDuration = 120L
+            moveDuration = 180L
+        }
+        listView.setItemViewCacheSize(24)
         setDivider(null)
         setDividerHeight(0)
         listView.clipToPadding = false
@@ -68,6 +253,7 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat(), OnPreferenceDataS
 
     override fun onPreferenceDataStoreChanged(store: PreferenceDataStore, key: String) {
         if (key == Key.PROFILE_CARD_STYLE) {
+            ExpandablePreferenceCategory.cachedCardStyle = null
             runOnMainDispatcher {
                 listView?.adapter?.notifyDataSetChanged()
             }
@@ -316,6 +502,7 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat(), OnPreferenceDataS
             true
         }
 
+        setupWifiAutoSwitch()
         mixedPort.onPreferenceChangeListener = reloadListener
         httpProxyBypass.onPreferenceChangeListener = reloadListener
         dnsHosts.onPreferenceChangeListener = reloadListener

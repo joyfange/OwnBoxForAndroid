@@ -117,6 +117,7 @@ class SagerNet : Application(),
                 runOnDefaultDispatcher {
                     DefaultNetworkListener.start(this@SagerNet) {
                         underlyingNetwork = it
+                        io.nekohasekai.sagernet.bg.WifiAutoSwitch.onNetworkEvent(this@SagerNet)
                     }
                     updateNotificationChannels()
                 }
@@ -128,6 +129,9 @@ class SagerNet : Application(),
             runOnDefaultDispatcher {
                 PackageCache.register()
                 cleanWebview()
+            }
+            if (isMainProcess) runOnDefaultDispatcher {
+                runCatching { io.nekohasekai.sagernet.bg.WifiAutoSwitch.syncRegistration(this@SagerNet) }
             }
         }
 

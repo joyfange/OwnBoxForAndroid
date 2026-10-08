@@ -26,6 +26,10 @@ class ExpandablePreferenceCategory @JvmOverloads constructor(
     companion object {
         private val expandedStateMap = HashMap<String, Boolean>()
 
+        /** 卡片样式在每次绑定都要用，缓存起来避免每次展开/收起都在主线程查数据库；样式变更时清掉。 */
+        @Volatile
+        var cachedCardStyle: Int? = null
+
         fun isCategoryExpanded(key: String?): Boolean {
             if (key == null) return false
             return expandedStateMap[key] ?: false
@@ -41,6 +45,8 @@ class ExpandablePreferenceCategory @JvmOverloads constructor(
 
     var isExpanded: Boolean = false
         private set
+
+    private var arrowAnimating = false
 
     init {
         isSelectable = true
@@ -133,7 +139,8 @@ class ExpandablePreferenceCategory @JvmOverloads constructor(
             val ctx = card.context
             val surface = ctx.getColorAttr(R.attr.colorSurface)
             card.setCardBackgroundColor(surface)
-            if (DataStore.profileCardStyle == 1) {
+            val style = cachedCardStyle ?: DataStore.profileCardStyle.also { cachedCardStyle = it }
+            if (style == 1) {
                 card.cardElevation = 0f
                 card.strokeWidth = ctx.resources.getDimensionPixelSize(R.dimen.card_stroke_width)
                 card.strokeColor = ctx.getColor(R.color.card_stroke)
@@ -153,16 +160,28 @@ class ExpandablePreferenceCategory @JvmOverloads constructor(
         if (arrow != null) {
             val arrowColor = if (isExpanded) primaryColor else textSecondary
             arrow.imageTintList = ColorStateList.valueOf(arrowColor)
-            arrow.setImageResource(
-                if (isExpanded) R.drawable.ic_baseline_keyboard_arrow_up_24
-                else R.drawable.ic_baseline_keyboard_arrow_down_24
-            )
+            // 一个向下箭头靠旋转表示展开/收起：点击时立即转动，不再等列表重新绑定后换图
+            arrow.setImageResource(R.drawable.ic_baseline_keyboard_arrow_down_24)
+            if (!arrowAnimating) arrow.rotation = if (isExpanded) 180f else 0f
         }
 
         holder.itemView.isClickable = true
         holder.itemView.isFocusable = true
         holder.itemView.setOnClickListener {
-            toggle()
+            val target = !isExpanded
+            // 先给即时反馈（箭头、标题颜色），再改子项可见性
+            titleView?.setTextColor(if (target) primaryColor else textPrimary)
+            if (arrow != null) {
+                arrow.imageTintList = ColorStateList.valueOf(if (target) primaryColor else textSecondary)
+                arrowAnimating = true
+                arrow.animate().cancel()
+                arrow.animate()
+                    .rotation(if (target) 180f else 0f)
+                    .setDuration(180L)
+                    .withEndAction { arrowAnimating = false }
+                    .start()
+            }
+            setExpanded(target)
         }
     }
 

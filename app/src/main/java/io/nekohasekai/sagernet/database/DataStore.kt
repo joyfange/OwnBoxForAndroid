@@ -244,6 +244,15 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var showDirectSpeed by configurationStore.boolean(Key.SHOW_DIRECT_SPEED) { true }
     var showLandingIp by configurationStore.boolean(Key.SHOW_LANDING_IP) { true }
 
+    // 按 Wi‑Fi 自动开关：连上信任列表里的 Wi‑Fi 自动断开，离开后把由它断开的连接接回来
+    var wifiAutoSwitch by configurationStore.boolean(Key.WIFI_AUTO_SWITCH) { false }
+    var wifiTrustedSsids by configurationStore.string(Key.WIFI_TRUSTED_SSIDS) { "" }
+    var wifiAutoPaused by configurationStore.boolean("wifiAutoPaused") { false }
+    var wifiLastTrusted by configurationStore.string("wifiLastTrusted") { "" }
+
+    // 按应用统计经过 OwnBox 的流量（按天累计）
+    var appTrafficStatistics by configurationStore.boolean(Key.APP_TRAFFIC_STATISTICS) { true }
+
     val persistAcrossReboot by configurationStore.boolean(Key.PERSIST_ACROSS_REBOOT) { false }
 
     var httpProxyBypass by configurationStore.string(Key.HTTP_PROXY_BYPASS) { "" }

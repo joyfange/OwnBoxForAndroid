@@ -54,6 +54,10 @@ object Key {
     const val SPEED_INTERVAL = "speedInterval"
     const val SHOW_DIRECT_SPEED = "showDirectSpeed"
     const val SHOW_LANDING_IP = "showLandingIp"
+    const val WIFI_AUTO_SWITCH = "wifiAutoSwitch"
+    const val WIFI_TRUSTED_SSIDS = "wifiTrustedSsids"
+    const val WIFI_ADD_CURRENT = "wifiAddCurrent"
+    const val APP_TRAFFIC_STATISTICS = "appTrafficStatistics"
 
     const val HTTP_PROXY_BYPASS = "httpProxyBypass"
     const val DNS_HOSTS = "dnsHosts"

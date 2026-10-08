@@ -28,6 +28,9 @@ class NetworkFragment : NamedFragment(R.layout.layout_network) {
         val openLanSharing = View.OnClickListener {
             startActivity(Intent(requireContext(), LanSharingActivity::class.java))
         }
+        binding.appTrafficCard.setOnClickListener {
+            startActivity(Intent(requireContext(), AppTrafficActivity::class.java))
+        }
         binding.lanSharingCard.setOnClickListener(openLanSharing)
         binding.lanSharingBtn.setOnClickListener(openLanSharing)
 

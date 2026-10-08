@@ -12,6 +12,10 @@
     <uses-permission android:name="${applicationId}.SERVICE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- 读取当前 Wi‑Fi 名称（按 Wi‑Fi 自动开关、路由规则里的 Wi‑Fi 条件）需要定位权限 -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
@@ -553,6 +557,18 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+
+        <!-- 按 Wi‑Fi 自动开关：系统网络回调经 PendingIntent 投递到 :bg（服务状态在该进程） -->
+        <receiver
+            android:name="io.nekohasekai.sagernet.bg.WifiAutoReceiver"
+            android:exported="false"
+            android:process=":bg" />
+
+        <activity
+            android:name="io.nekohasekai.sagernet.ui.AppTrafficActivity"
+            android:configChanges="uiMode"
+            android:label="应用流量统计"
+            android:parentActivityName="io.nekohasekai.sagernet.ui.MainActivity" />
 
         <!-- 小部件按钮的开关广播改由不导出的接收器处理：PendingIntent 以本应用身份发送，外部 App 发不进来 -->
         <receiver

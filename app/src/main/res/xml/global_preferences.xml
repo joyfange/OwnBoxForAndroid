@@ -40,6 +40,12 @@
             app:title="@string/profile_traffic_statistics" />
 
         <SwitchPreference
+            app:defaultValue="true"
+            app:key="appTrafficStatistics"
+            app:summary="按天、按月记录每个应用经过 OwnBox 的流量（工具 → 应用流量统计），下次连接生效"
+            app:title="应用流量统计" />
+
+        <SwitchPreference
             app:key="showGroupInNotification"
             app:title="@string/show_group_in_notification" />
 
@@ -122,6 +128,25 @@
             app:key="isAutoConnect"
             app:summary="@string/auto_connect_summary"
             app:title="@string/auto_connect" />
+
+        <SwitchPreference
+            app:defaultValue="false"
+            app:icon="@drawable/ic_baseline_wifi_24"
+            app:key="wifiAutoSwitch"
+            app:summary="连上信任的 Wi‑Fi 时自动断开，离开后自动接回"
+            app:title="按 Wi‑Fi 自动开关" />
+
+        <EditTextPreference
+            app:dependency="wifiAutoSwitch"
+            app:dialogMessage="填写 Wi‑Fi 名称，多个用逗号或换行分隔。只有这些 Wi‑Fi 会自动断开，其他 Wi‑Fi 照常连接。"
+            app:key="wifiTrustedSsids"
+            app:title="信任的 Wi‑Fi" />
+
+        <Preference
+            app:dependency="wifiAutoSwitch"
+            app:key="wifiAddCurrent"
+            app:summary="把正在连接的 Wi‑Fi 加入信任列表"
+            app:title="添加当前 Wi‑Fi" />
 
         <SwitchPreference
             app:icon="@drawable/ic_navigation_apps"

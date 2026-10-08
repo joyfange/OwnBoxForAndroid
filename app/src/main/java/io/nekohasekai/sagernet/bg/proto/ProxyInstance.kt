@@ -20,6 +20,12 @@ class ProxyInstance(profile: ProxyEntity, var service: BaseService.Interface? = 
     // for TrafficLooper
     var looper: TrafficLooper? = null
 
+    // 按应用流量统计
+    @Volatile
+    private var appTrafficRecorder: AppTrafficRecorder? = null
+    @Volatile
+    private var closing = false
+
     override fun buildConfig() {
         super.buildConfig()
         lastSelectorGroupId = super.config.selectorGroupId
@@ -53,10 +59,22 @@ class ProxyInstance(profile: ProxyEntity, var service: BaseService.Interface? = 
         runOnDefaultDispatcher {
             looper = service?.let { TrafficLooper(it.data, this) }
             looper?.start()
+            if (!closing && notTmp && service != null && io.nekohasekai.sagernet.database.DataStore.appTrafficStatistics) {
+                appTrafficRecorder = runCatching { AppTrafficRecorder(box).also { it.start() } }
+                    .onFailure { Logs.w(it) }.getOrNull()
+            }
         }
     }
 
     override fun close() {
+        closing = true
+        // 在内核关闭前补记最后一段应用流量（关闭后连接表就没了）
+        appTrafficRecorder?.let { recorder ->
+            appTrafficRecorder = null
+            runCatching {
+                runBlocking { kotlinx.coroutines.withTimeoutOrNull(2_000L) { recorder.stop() } }
+            }.onFailure { Logs.w(it) }
+        }
         var closeError: Throwable? = null
         try {
             super.close()
