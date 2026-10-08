@@ -2708,16 +2708,46 @@ class ConfigurationFragment @JvmOverloads constructor(
             updateSubscriptionInfoCard(view)
         }
 
+        private var subscriptionCardToken = 0
+
+        /**
+         * Reads the group (and, for the name fallback, its node names) off the main thread, then draws the card.
+         * It used to query the database on the main thread at every page show, which was a dropped frame each time
+         * the configuration page appeared.
+         */
         fun updateSubscriptionInfoCard(targetView: View? = this.view) {
             val root = targetView ?: return
             val card = root.findViewById<MaterialCardView>(R.id.card_subscription_info) ?: return
 
             if (select || !::proxyGroup.isInitialized || !DataStore.showSubscriptionInfoCard) {
+                subscriptionCardToken++
                 card.isGone = true
                 return
             }
+            val token = ++subscriptionCardToken
+            val groupId = proxyGroup.id
+            val allTab = isAllGroupsTab
+            lifecycleScope.launch {
+                val loaded = withContext(Dispatchers.Default) {
+                    runCatching {
+                        val group = SagerDatabase.groupDao.getById(groupId)
+                        val names = if (!allTab && group != null && group.type == GroupType.SUBSCRIPTION && group.subscription != null) {
+                            SagerDatabase.proxyDao.getByGroup(group.id).map { it.displayName() }
+                        } else emptyList()
+                        group to names
+                    }.getOrNull()
+                }
+                if (token != subscriptionCardToken || !isAdded || view == null) return@launch
+                renderSubscriptionInfoCard(root, card, loaded?.first ?: proxyGroup, loaded?.second ?: emptyList())
+            }
+        }
 
-            val currentGroup = SagerDatabase.groupDao.getById(proxyGroup.id) ?: proxyGroup
+        private fun renderSubscriptionInfoCard(
+            root: View,
+            card: MaterialCardView,
+            currentGroup: ProxyGroup,
+            groupProfileNames: List<String>,
+        ) {
             proxyGroup = currentGroup
 
             val tvTitle = root.findViewById<TextView>(R.id.tv_subscription_title)
@@ -2783,9 +2813,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                 val expireRegex = Regex(".*(?:套餐到期|到期时间|过期时间|到期)[：:]\\s*([0-9]{4}[-/][0-9]{2}[-/][0-9]{2})", RegexOption.IGNORE_CASE)
                 val trafficRegex = Regex(".*(?:剩余流量|可用流量|剩余)[：:]\\s*([0-9.]+\\s*[KMGT]?B|无限|不限|不限量)", RegexOption.IGNORE_CASE)
                 val usedRegex = Regex(".*(?:已用流量|已用|已使用)[：:]\\s*([0-9.]+\\s*[KMGT]?B)", RegexOption.IGNORE_CASE)
-                val allGroupProfiles = SagerDatabase.proxyDao.getByGroup(currentGroup.id)
-                for (p in allGroupProfiles) {
-                    val name = p.displayName()
+                for (name in groupProfileNames) {
                     if (expireMillis <= 0L && fallbackExpireStr == null) {
                         val m = expireRegex.find(name)
                         if (m != null) {
