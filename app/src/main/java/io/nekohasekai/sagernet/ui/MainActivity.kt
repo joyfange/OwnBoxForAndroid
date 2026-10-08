@@ -591,8 +591,9 @@ class MainActivity : ThemedActivity(),
     } as? ToolbarFragment
 
     /**
-     * Settings can change how the profile list is drawn (card style, addresses, tabs...), so after a visit to
-     * Settings the kept profile list is rebuilt instead of shown as it was.
+     * Rebuild the kept profile list only when a setting that changes how it is drawn actually changed (card style,
+     * layout, tabs, addresses...). It used to be rebuilt after every visit to Settings, so going back to it from
+     * Settings re-inflated the whole pager and every group list: the stutter when opening 配置 again.
      */
     private var configurationStale = false
 
@@ -632,19 +633,27 @@ class MainActivity : ThemedActivity(),
             target = null
         }
         if (id == R.id.nav_configuration) configurationStale = false
-        if (id == R.id.nav_settings) configurationStale = true
         val reuse = target != null
         if (target == null) target = newPage(id) ?: return false
         tx.setCustomAnimations(R.anim.page_enter, 0)
+        val leaving = ArrayList<Fragment>()
         for (f in fm.fragments) {
             if (f === target || f === stale || f.id != R.id.fragment_holder) continue
             val keptId = KEPT_PAGES.firstOrNull { pageTag(it) == f.tag }
-            if (keptId != null) {
-                if (!f.isHidden) tx.hide(f)
-            } else {
-                tx.remove(f)
-            }
+            if (keptId == null) leaving.add(f)
+            if (!f.isHidden) tx.hide(f)
         }
+        // Live pages (logs, connections, dashboard WebView) are hidden now and destroyed once the new page's fade-in
+        // is over: tearing a WebView down in the same frame as showing 配置 was a visible hitch.
+        if (leaving.isNotEmpty()) binding.root.postDelayed({
+            if (isFinishing || isDestroyed || fm.isStateSaved) return@postDelayed
+            val tx2 = fm.beginTransaction().setReorderingAllowed(true)
+            var any = false
+            for (f in leaving) if (f.isAdded && f.isHidden && f !== currentMainFragment) {
+                tx2.remove(f); any = true
+            }
+            if (any) tx2.commitAllowingStateLoss()
+        }, 320L)
         if (reuse) tx.show(target) else tx.add(R.id.fragment_holder, target, tag)
         tx.commitAllowingStateLoss()
         // a page built while hidden may have missed the window insets (toolbar / navigation-bar padding)
@@ -820,6 +829,10 @@ class MainActivity : ThemedActivity(),
             if (isDestroyed || isFinishing) return@runOnMainDispatcher
             when (key) {
                 Key.SERVICE_MODE -> onBinderDied()
+                Key.GROUP_LAYOUT_MODE, Key.PROFILE_CARD_STYLE, Key.SHOW_SUBSCRIPTION_INFO_CARD,
+                Key.SHOW_ALL_GROUPS_TAB, Key.ALL_GROUPS_ORDER, Key.ALWAYS_SHOW_ADDRESS -> {
+                    if (currentMainFragment !is ConfigurationFragment) configurationStale = true
+                }
                 Key.PROFILE_ID -> {
                     LandingIpManager.clearCache()
                     if (DataStore.serviceState.connected && DataStore.showLandingIp) {

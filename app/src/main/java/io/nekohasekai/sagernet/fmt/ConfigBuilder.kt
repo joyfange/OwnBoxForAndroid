@@ -152,7 +152,7 @@ internal fun buildLoadBalanceOutbound(
         type = "loadbalance"
         tag = customTag?.takeIf { it.isNotBlank() } ?: TAG_PROXY
         outbounds = memberTags
-        this.strategy = strategy ?: "round_robin"
+        this.strategy = strategy?.takeIf { it.isNotBlank() } ?: "leastPing"
         url = testUrl?.takeIf { it.isNotBlank() }
             ?: runCatching { DataStore.connectionTestURL }.getOrNull()?.takeIf { it.isNotBlank() }
             ?: "https://cp.cloudflare.com/generate_204"
@@ -944,7 +944,8 @@ fun buildConfig(
                         "leastLoad" -> "leastLoad"
                         "round_robin", "roundRobin" -> "round_robin"
                         "random" -> "random"
-                        else -> balancerBean.strategy?.takeIf { it.isNotBlank() } ?: "round_robin"
+                        // 未设置时界面显示的是第一项「最低延迟」，内核却按轮询跑；改为与界面一致
+                        else -> balancerBean.strategy?.takeIf { it.isNotBlank() } ?: "leastPing"
                     }
                     buildLoadBalanceOutbound(
                         memberTags = memberTags,
@@ -1312,7 +1313,7 @@ fun buildConfig(
                     )
                 )
             } else if (useLoadBalance && tagMap.isNotEmpty()) {
-                outbounds.add(0, buildLoadBalanceOutbound(tagMap.values.toList(), customTag = TAG_PROXY))
+                outbounds.add(0, buildLoadBalanceOutbound(tagMap.values.toList(), strategy = "round_robin", customTag = TAG_PROXY))
                 balancerMemberMap[proxy.id] = list.mapNotNull { it.id.takeIf { id -> id != proxy.id } }
             } else {
                 outbounds.add(0, buildSelectorOutbound(tagMap[proxy.id], tagMap.values.toList(), customTag = TAG_PROXY))
