@@ -116,7 +116,7 @@ class AppTrafficActivity : ThemedActivity() {
 
     override fun onResume() {
         super.onResume()
-        // 回到页面时刷新今天的数字（后台每 30 秒落盘一次）；第一次进入时 onCreate 已加载
+        // 回到页面时刷新今天的数字（后台每分钟落盘一次）；第一次进入时 onCreate 已加载
         if (resumedOnce && isToday()) reload(animate = false)
         resumedOnce = true
     }

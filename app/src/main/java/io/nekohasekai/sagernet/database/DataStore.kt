@@ -249,6 +249,7 @@ object DataStore : OnPreferenceDataStoreChangeListener {
     var wifiTrustedSsids by configurationStore.string(Key.WIFI_TRUSTED_SSIDS) { "" }
     var wifiAutoPaused by configurationStore.boolean("wifiAutoPaused") { false }
     var wifiLastTrusted by configurationStore.string("wifiLastTrusted") { "" }
+    var wifiBatteryPrompted by configurationStore.boolean("wifiBatteryPrompted") { false }
 
     // 按应用统计经过 OwnBox 的流量（按天累计）
     var appTrafficStatistics by configurationStore.boolean(Key.APP_TRAFFIC_STATISTICS) { true }

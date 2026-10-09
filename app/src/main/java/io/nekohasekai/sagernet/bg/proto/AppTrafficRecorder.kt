@@ -22,8 +22,11 @@ import kotlinx.coroutines.launch
 class AppTrafficRecorder(private val box: libcore.BoxInstance) {
 
     companion object {
-        private const val POLL_MS = 5_000L
-        private const val FLUSH_EVERY = 6 // 6 × 5s = 30s
+        // 亮屏 10 秒读一次连接表；熄屏 60 秒一次，避免频繁唤醒 CPU
+        private const val POLL_SCREEN_ON_MS = 10_000L
+        private const val POLL_SCREEN_OFF_MS = 60_000L
+        // 攒够 60 秒（亮屏）或每次熄屏轮询后落盘
+        private const val FLUSH_INTERVAL_MS = 60_000L
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -38,12 +41,15 @@ class AppTrafficRecorder(private val box: libcore.BoxInstance) {
     fun start() {
         AppTrafficStore.prune()
         job = scope.launch {
-            var ticks = 0
+            var lastFlush = System.currentTimeMillis()
             while (isActive) {
-                delay(POLL_MS)
+                val interactive = runCatching { io.nekohasekai.sagernet.SagerNet.power.isInteractive }
+                    .getOrDefault(true)
+                delay(if (interactive) POLL_SCREEN_ON_MS else POLL_SCREEN_OFF_MS)
                 runCatching { poll() }.onFailure { Logs.w(it) }
-                if (++ticks >= FLUSH_EVERY) {
-                    ticks = 0
+                val now = System.currentTimeMillis()
+                if (now - lastFlush >= FLUSH_INTERVAL_MS) {
+                    lastFlush = now
                     flush()
                 }
             }

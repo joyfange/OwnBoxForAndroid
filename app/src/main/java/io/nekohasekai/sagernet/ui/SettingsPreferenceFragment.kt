@@ -125,7 +125,10 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat(), OnPreferenceDataS
 
     private fun maybeWarnBatteryOptimization() {
         val ctx = context ?: return
+        // 已不受电池优化限制，或之前已经提醒过（含厂商设置里放开、系统接口却读不到的机型）就不再弹
         if (io.nekohasekai.sagernet.bg.WifiAutoSwitch.isIgnoringBatteryOptimizations(ctx)) return
+        if (DataStore.wifiBatteryPrompted) return
+        DataStore.wifiBatteryPrompted = true
         MaterialAlertDialogBuilder(ctx)
             .setTitle("建议关闭电池优化")
             .setMessage("离开信任 Wi‑Fi 时要在后台自动重新连接，Android 12 起需要 OwnBox 不受电池优化限制；否则会发一条通知，点一下再连。")
@@ -138,7 +141,7 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat(), OnPreferenceDataS
                     )
                 }
             }
-            .setNegativeButton("以后再说", null)
+            .setNegativeButton("已经关了", null)
             .show()
     }
 
@@ -231,14 +234,10 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat(), OnPreferenceDataS
 
         DataStore.configurationStore.registerChangeListener(this)
         listView.layoutManager = FixedLinearLayoutManager(listView)
-        // 展开/收起分类时：关掉整行淡入淡出的 change 动画（会让分类卡片闪一下），
-        // 插入/移动动画缩短，展开立即跟手；所有分类表现一致
-        listView.itemAnimator = androidx.recyclerview.widget.DefaultItemAnimator().apply {
-            supportsChangeAnimations = false
-            addDuration = 160L
-            removeDuration = 120L
-            moveDuration = 180L
-        }
+        // 展开/收起分类时不做列表项动画：默认动画会先等下方分类「移动」完才淡入子项，
+        // 下方还有分类的（如「模式与入站设置」）就会停顿一下。改为立即展开，
+        // 只保留箭头旋转作为反馈，所有分类表现一致
+        listView.itemAnimator = null
         listView.setItemViewCacheSize(24)
         setDivider(null)
         setDividerHeight(0)
