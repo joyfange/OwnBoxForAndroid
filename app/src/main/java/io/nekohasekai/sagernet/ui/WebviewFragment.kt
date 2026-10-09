@@ -49,6 +49,13 @@ class WebviewFragment : ToolbarFragment(R.layout.layout_webview), Toolbar.OnMenu
         .callTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
         .build()
     lateinit var mWebView: WebView
+    private var progressBar: com.google.android.material.progressindicator.LinearProgressIndicator? = null
+
+    /** A thin bar under the toolbar while the dashboard loads, so a slow page never looks frozen. */
+    private fun setLoading(loading: Boolean) {
+        val bar = progressBar ?: return
+        if (loading) bar.show() else bar.hide()
+    }
 
     companion object {
         const val DEFAULT_YACD_URL = "http://127.0.0.1:9090/ui"
@@ -80,6 +87,7 @@ class WebviewFragment : ToolbarFragment(R.layout.layout_webview), Toolbar.OnMenu
         // webview
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
         mWebView = binding.webview
+        progressBar = binding.webviewProgress
         mWebView.settings.apply {
             domStorageEnabled = true
             javaScriptEnabled = true
@@ -128,8 +136,14 @@ class WebviewFragment : ToolbarFragment(R.layout.layout_webview), Toolbar.OnMenu
                 WebViewUtil.onReceivedError(view, request, error)
             }
 
+            override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                super.onPageStarted(view, url, favicon)
+                if (url != null && url != "about:blank") setLoading(true)
+            }
+
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
+                setLoading(false)
                 if (url != null) {
                     when (dashboardKind(url)) {
                         DashboardKind.ZASHBOARD -> injectZashboardAutoConnect(view)
@@ -139,7 +153,11 @@ class WebviewFragment : ToolbarFragment(R.layout.layout_webview), Toolbar.OnMenu
                 }
             }
         }
-        mWebView.webChromeClient = WebChromeClient()
+        mWebView.webChromeClient = object : WebChromeClient() {
+            override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                if (newProgress >= 100) setLoading(false)
+            }
+        }
 
         loadDashboard(DataStore.yacdURL)
 
@@ -437,6 +455,7 @@ class WebviewFragment : ToolbarFragment(R.layout.layout_webview), Toolbar.OnMenu
         val targetUrl = buildEffectiveDashboardUrl(url)
         updateToolbarSubtitle()
         val generation = ++loadGeneration
+        setLoading(true)
         if (dashboardKind(targetUrl) == DashboardKind.LOCAL || !DataStore.serviceState.connected ||
             !(DataStore.enableClashAPI || DataStore.allowAccess)
         ) {
@@ -467,6 +486,7 @@ class WebviewFragment : ToolbarFragment(R.layout.layout_webview), Toolbar.OnMenu
     }
 
     override fun onDestroyView() {
+        progressBar = null
         if (::mWebView.isInitialized) {
             try {
                 mWebView.stopLoading()

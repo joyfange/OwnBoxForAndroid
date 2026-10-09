@@ -2564,8 +2564,11 @@ class ConfigurationFragment @JvmOverloads constructor(
         override fun onResume() {
             super.onResume()
 
-            if (::configurationListView.isInitialized && configurationListView.size == 0) {
+            if (::configurationListView.isInitialized && configurationListView.size == 0 &&
+                adapter?.loadRequested != true
+            ) {
                 configurationListView.adapter = adapter
+                adapter?.loadRequested = true
                 runOnDefaultDispatcher {
                     adapter?.reloadProfiles()
                 }
@@ -2573,7 +2576,9 @@ class ConfigurationFragment @JvmOverloads constructor(
                 onViewCreated(requireView(), null)
             }
             checkOrderMenu()
-            updateSubscriptionInfoCard()
+            // Before the first load lands the card is drawn together with the list; refreshing it here earlier
+            // would show it alone for a moment.
+            if (adapter?.loadedOnce == true) updateSubscriptionInfoCard()
             val pf = parentFragment as? ConfigurationFragment
             if (pf == null || (!pf.isSearchActive && pf.currentSearchQuery.isBlank())) {
                 configurationListView.requestFocus()
@@ -2731,7 +2736,12 @@ class ConfigurationFragment @JvmOverloads constructor(
                 setupItemTouchHelper()
                 setupBottomBarScrollDriver()
             }
-            updateSubscriptionInfoCard(view)
+            // Load the nodes as soon as the page is created, including the off-screen pages the pager pre-builds,
+            // and draw the subscription card in the same frame as the list. Nodes used to load only when the page
+            // became the current one (onResume) while the card was drawn here, so switching to another subscription
+            // showed its card first and its nodes a moment later.
+            adapter!!.loadRequested = true
+            runOnDefaultDispatcher { adapter?.reloadProfiles() }
         }
 
         private var subscriptionCardToken = 0
@@ -2766,6 +2776,18 @@ class ConfigurationFragment @JvmOverloads constructor(
                 if (token != subscriptionCardToken || !isAdded || view == null) return@launch
                 renderSubscriptionInfoCard(root, card, loaded?.first ?: proxyGroup, loaded?.second ?: emptyList())
             }
+        }
+
+        /** Draws the card right now with data already read off the main thread (same frame as the node list). */
+        fun showSubscriptionInfoCardNow(group: ProxyGroup, groupProfileNames: List<String>) {
+            val root = view ?: return
+            val card = root.findViewById<MaterialCardView>(R.id.card_subscription_info) ?: return
+            subscriptionCardToken++
+            if (select || !::proxyGroup.isInitialized || !DataStore.showSubscriptionInfoCard) {
+                card.isGone = true
+                return
+            }
+            renderSubscriptionInfoCard(root, card, group, groupProfileNames)
         }
 
         private fun renderSubscriptionInfoCard(
@@ -2984,6 +3006,10 @@ class ConfigurationFragment @JvmOverloads constructor(
             init {
                 setHasStableIds(true)
             }
+
+            /** Set once a load has been started / has landed; the page shows card and nodes together after it. */
+            @Volatile var loadRequested = false
+            var loadedOnce = false
 
             var configurationIdList: MutableList<Long> = mutableListOf()
             val allConfigurationIdList: MutableList<Long> = mutableListOf()
@@ -3463,6 +3489,12 @@ class ConfigurationFragment @JvmOverloads constructor(
                         SagerDatabase.proxyDao.getByGroup(proxyGroup.id)
                     }
                 }
+                // Subscription card data, read here so it can be drawn in the same frame as the list.
+                val cardGroup = if (isAllGroupsTab) proxyGroup
+                else runCatching { SagerDatabase.groupDao.getById(proxyGroup.id) }.getOrNull() ?: proxyGroup
+                val cardNames = if (!isAllGroupsTab && cardGroup.type == GroupType.SUBSCRIPTION &&
+                    cardGroup.subscription != null
+                ) newProfiles.map { it.displayName() } else emptyList()
                 val pf = parentFragment as? ConfigurationFragment
                 if (pf?.excludedIds != null && pf.excludedIds.isNotEmpty()) {
                     val excludeSet = pf.excludedIds.toSet()
@@ -3534,7 +3566,8 @@ class ConfigurationFragment @JvmOverloads constructor(
                     } else if (newProfiles.isNotEmpty()) {
                         configurationListView.scrollTo(0, true)
                     }
-                    updateSubscriptionInfoCard()
+                    loadedOnce = true
+                    showSubscriptionInfoCardNow(cardGroup, cardNames)
 
                 }
             }

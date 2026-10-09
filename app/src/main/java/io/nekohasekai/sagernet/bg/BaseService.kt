@@ -52,6 +52,8 @@ class BaseService {
         var notification: ServiceNotification? = null
         var cacheRecoveryAttempts = 0
         var networkSwitchRetryAttempts = 0
+        /** A failed start asked for a retry: the next start request is honoured although the state is Connecting. */
+        @Volatile var startRetryPending = false
 
         val receiver = broadcastReceiver { ctx, intent ->
             when (intent.action) {
@@ -592,9 +594,13 @@ class BaseService {
 
         suspend fun preInit() {
             // 启动瞬间先同步绑定当前物理网络，首个连接无需等待 NetworkCallback 回调（对齐官方 3.0.5/3.0.6）
-            if (SagerNet.underlyingNetwork == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            // Always take the network that is active right now: the service process outlives a stop, and a network
+            // left over from the last session (e.g. Wi-Fi, now on mobile data) made the first connections of the new
+            // start time out and the start retry several times (the start button spun for seconds).
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 runCatching {
                     SagerNet.connectivity.activeNetwork?.let { active ->
+                        if (SagerNet.underlyingNetwork != active) NativeInterface.clearInterfaceCache()
                         SagerNet.underlyingNetwork = active
                         upstreamInterfaceName = SagerNet.connectivity.getLinkProperties(active)?.interfaceName
                     }
@@ -623,13 +629,10 @@ class BaseService {
                         Logs.d("Network changed: $oldName -> ${link.interfaceName} (network $oldNetwork -> $network)")
                         upstreamInterfaceName = link.interfaceName
                         NativeInterface.clearInterfaceCache()
-                        if (data.state == State.Connecting) {
-                            Logs.i("Network changed during Connecting state: cancelling old handshake and retrying on new network")
-                            data.connectingJob?.cancel()
-                            data.connectingJob = null
-                            startRunner()
-                            return@start
-                        }
+                        // While connecting the start simply continues on the new network (underlying network updated
+                        // above). Cancelling it here used to leave nothing to restart: a start request is ignored
+                        // while the state is still Connecting.
+                        if (data.state == State.Connecting) return@start
                         if (DataStore.networkChangeResetConnections) {
                             try {
                                 Libcore.resetAllConnections(true)
@@ -663,7 +666,11 @@ class BaseService {
             DataStore.baseService = this
 
             val data = data
-            if (data.state != State.Stopped) return Service.START_STICKY
+            // A retry after a transient start failure arrives while the state is still Connecting. It used to be dropped
+            // here, which left the service (and the start button's spinner) stuck in Connecting.
+            val isRetry = data.startRetryPending && data.state == State.Connecting && data.connectingJob?.isActive != true
+            if (data.state != State.Stopped && !isRetry) return Service.START_STICKY
+            data.startRetryPending = false
             var profile = SagerDatabase.proxyDao.getById(DataStore.selectedProxy)
             if (profile == null) {
                 profile = SagerDatabase.proxyDao.getAll().firstOrNull()?.also {
@@ -716,13 +723,17 @@ class BaseService {
             }
 
             data.changeState(State.Connecting)
-            runOnMainDispatcher {
+            data.connectingJob = runOnMainDispatcher {
                 try {
                     data.notification = createNotification(ActiveOutboundTracker.formatNotificationTitle(profile))
 
-                    Executable.killAll()    // clean up old processes
                     preInit()
-                    proxy.init()
+                    // Building the config (database reads, JSON) and parsing it in the core is CPU work: do it off the
+                    // service's main thread so state callbacks and the notification are not held up meanwhile.
+                    withContext(Dispatchers.IO) {
+                        Executable.killAll()    // clean up old processes
+                        proxy.init()
+                    }
                     DataStore.currentProfile = profile.id
 
                     proxy.processes = GuardedProcessPool {
@@ -750,6 +761,7 @@ class BaseService {
                         }
                         data.proxy = null
                         delay(600)
+                        data.startRetryPending = true
                         startRunner()
                         return@runOnMainDispatcher
                     }
@@ -778,6 +790,7 @@ class BaseService {
                         }
                         data.proxy = null
                         delay(200)
+                        data.startRetryPending = true
                         startRunner()
                         return@runOnMainDispatcher
                     }
@@ -800,6 +813,7 @@ class BaseService {
                         }
                         data.proxy = null
                         delay(600)
+                        data.startRetryPending = true
                         startRunner()
                         return@runOnMainDispatcher
                     }

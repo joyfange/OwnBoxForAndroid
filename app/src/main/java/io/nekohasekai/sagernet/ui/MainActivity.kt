@@ -675,17 +675,24 @@ class MainActivity : ThemedActivity(),
                 val queue = ArrayDeque(PREWARM_PAGES)
                 override fun queueIdle(): Boolean {
                     if (isFinishing || isDestroyed || supportFragmentManager.isStateSaved) return false
-                    val id = queue.removeFirstOrNull() ?: return false
+                    val id = queue.removeFirstOrNull() ?: run {
+                        // Load the system WebView once while idle, so the first open of the sing-box dashboard does
+                        // not pay the WebView start-up (often the better part of a second) on tap.
+                        if (DataStore.enableClashAPI) runCatching {
+                            android.webkit.WebSettings.getDefaultUserAgent(this@MainActivity)
+                        }
+                        return false
+                    }
                     val fm = supportFragmentManager
                     if (fm.findFragmentByTag(pageTag(id)) == null && !isCurrentFragment(id)) {
-                        val page = newPage(id) ?: return queue.isNotEmpty()
+                        val page = newPage(id) ?: return true
                         fm.beginTransaction()
                             .setReorderingAllowed(true)
                             .add(R.id.fragment_holder, page, pageTag(id))
                             .hide(page)
                             .commitAllowingStateLoss()
                     }
-                    return queue.isNotEmpty()
+                    return true // one more idle pass: the empty-queue branch warms the WebView, then stops
                 }
             })
         }, PREWARM_DELAY_MS)
