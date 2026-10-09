@@ -9,6 +9,11 @@ import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.datepicker.CalendarConstraints
+import com.google.android.material.datepicker.CompositeDateValidator
+import com.google.android.material.datepicker.DateValidatorPointBackward
+import com.google.android.material.datepicker.DateValidatorPointForward
+import com.google.android.material.datepicker.MaterialDatePicker
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.database.AppTrafficStore
@@ -23,6 +28,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Calendar
 import java.util.Locale
+import java.util.TimeZone
 
 /**
  * 按天 / 按月查看每个应用经过 OwnBox 的流量：环形占比、每日柱状趋势、应用排行。
@@ -107,6 +113,7 @@ class AppTrafficActivity : ThemedActivity() {
         }
         binding.btnPrev.setOnClickListener { shift(-1) }
         binding.btnNext.setOnClickListener { shift(1) }
+        binding.periodTitle.setOnClickListener { pickPeriod() }
         binding.barChart.onBarSelected = { index -> onTrendBarSelected(index) }
 
         reload()
@@ -141,6 +148,72 @@ class AppTrafficActivity : ThemedActivity() {
         }
         cursor.timeInMillis = next.timeInMillis
         reload()
+    }
+
+    /** 点标题直接跳到某一天 / 某个月，不用一下下翻。记录最多保留约 400 天。 */
+    private fun pickPeriod() {
+        if (monthMode) pickMonth() else pickDay()
+    }
+
+    private fun pickDay() {
+        if (supportFragmentManager.findFragmentByTag("traffic_day_picker") != null) return
+        // MaterialDatePicker 以 UTC 零点表示日期：本地年月日 <-> UTC 零点互转，避免时区差一天
+        fun toUtcMidnight(c: Calendar): Long = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+            clear()
+            set(c.get(Calendar.YEAR), c.get(Calendar.MONTH), c.get(Calendar.DAY_OF_MONTH))
+        }.timeInMillis
+        val today = toUtcMidnight(Calendar.getInstance())
+        val earliest = toUtcMidnight(Calendar.getInstance().apply { add(Calendar.DAY_OF_MONTH, -400) })
+        val constraints = CalendarConstraints.Builder()
+            .setStart(earliest)
+            .setEnd(today)
+            .setOpenAt(toUtcMidnight(cursor))
+            .setValidator(
+                CompositeDateValidator.allOf(
+                    listOf(DateValidatorPointForward.from(earliest), DateValidatorPointBackward.before(today + 1))
+                )
+            )
+            .build()
+        val picker = MaterialDatePicker.Builder.datePicker()
+            .setTitleText("选择日期")
+            .setSelection(toUtcMidnight(cursor))
+            .setCalendarConstraints(constraints)
+            .build()
+        picker.addOnPositiveButtonClickListener { utc ->
+            val u = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply { timeInMillis = utc }
+            val picked = Calendar.getInstance().apply {
+                set(u.get(Calendar.YEAR), u.get(Calendar.MONTH), u.get(Calendar.DAY_OF_MONTH))
+            }
+            if (picked.after(Calendar.getInstance())) return@addOnPositiveButtonClickListener
+            cursor.timeInMillis = picked.timeInMillis
+            reload()
+        }
+        picker.show(supportFragmentManager, "traffic_day_picker")
+    }
+
+    private fun pickMonth() {
+        val now = Calendar.getInstance()
+        val months = (0 until 13).map { back ->
+            (now.clone() as Calendar).apply {
+                set(Calendar.DAY_OF_MONTH, 1)
+                add(Calendar.MONTH, -back)
+            }
+        }
+        val names = months.map { "${it.get(Calendar.YEAR)}年${it.get(Calendar.MONTH) + 1}月" }.toTypedArray()
+        val current = months.indexOfFirst {
+            it.get(Calendar.YEAR) == cursor.get(Calendar.YEAR) && it.get(Calendar.MONTH) == cursor.get(Calendar.MONTH)
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle("选择月份")
+            .setSingleChoiceItems(names, current) { dialog, which ->
+                dialog.dismiss()
+                val m = months[which]
+                // 本月停在今天，其他月份停在 1 号（与左右翻页一致）
+                cursor.timeInMillis = if (which == 0) Calendar.getInstance().timeInMillis else m.timeInMillis
+                reload()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     /** 按天：柱子是以所选日期结尾的 7 天；按月：柱子是这个月的每一天。 */
@@ -255,14 +328,14 @@ class AppTrafficActivity : ThemedActivity() {
     private fun updatePeriodTitle() {
         val y = cursor.get(Calendar.YEAR)
         val m = cursor.get(Calendar.MONTH) + 1
-        binding.periodTitle.text = if (monthMode) {
+        binding.periodTitle.text = (if (monthMode) {
             "${y}年${m}月"
         } else {
             val d = cursor.get(Calendar.DAY_OF_MONTH)
             val weekdays = arrayOf("周日", "周一", "周二", "周三", "周四", "周五", "周六")
             val suffix = if (isToday()) "今天" else weekdays[cursor.get(Calendar.DAY_OF_WEEK) - 1]
             "${y}年${m}月${d}日 $suffix"
-        }
+        }) + " ▾"
         val now = Calendar.getInstance()
         binding.btnNext.isEnabled = if (monthMode) {
             cursor.get(Calendar.YEAR) < now.get(Calendar.YEAR) ||

@@ -1424,4 +1424,5 @@
     <string name="color_picker_base_note">Pick a background colour. Light or dark is detected automatically and the cards, text and primary colour follow it.</string>
     <string name="color_picker_base_fallback_note">On Android 10 and below the closest preset background is used.</string>
     <string name="custom_ca_imported">Custom root CA imported to private storage. It takes effect after restarting the app.</string>
+    <string name="select_all">Select all</string>
 </resources>

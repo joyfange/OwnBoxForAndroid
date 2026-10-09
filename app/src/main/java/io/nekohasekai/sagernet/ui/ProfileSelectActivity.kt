@@ -43,9 +43,21 @@ class ProfileSelectActivity : ThemedActivity(R.layout.layout_profile_select),
         if (isMultiSelect) {
             bottomBar?.isVisible = true
             findViewById<View>(R.id.fragment_holder)?.updateLayoutParams<ViewGroup.MarginLayoutParams> {
-                bottomMargin = dp2px(64)
+                bottomMargin = dp2px(108)
+            }
+            bottomBar?.post {
+                findViewById<View>(R.id.fragment_holder)?.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+                    bottomMargin = bottomBar.height
+                }
             }
             updateBottomBar()
+            fun bulk(action: ConfigurationFragment.BulkSelect) {
+                (supportFragmentManager.findFragmentById(R.id.fragment_holder) as? ConfigurationFragment)
+                    ?.bulkSelect(action)
+            }
+            findViewById<MaterialButton>(R.id.btn_select_all)?.setOnClickListener { bulk(ConfigurationFragment.BulkSelect.ALL) }
+            findViewById<MaterialButton>(R.id.btn_select_invert)?.setOnClickListener { bulk(ConfigurationFragment.BulkSelect.INVERT) }
+            findViewById<MaterialButton>(R.id.btn_select_clear)?.setOnClickListener { bulk(ConfigurationFragment.BulkSelect.CLEAR) }
             findViewById<MaterialButton>(R.id.btn_confirm)?.setOnClickListener {
                 setResult(RESULT_OK, Intent().apply {
                     putExtra(EXTRA_PROFILE_IDS, selectedIds.toLongArray())
@@ -84,6 +96,12 @@ class ProfileSelectActivity : ThemedActivity(R.layout.layout_profile_select),
             putExtra(EXTRA_PROFILE_ID, profileId)
         })
         finish()
+    }
+
+    override fun onSelectionReplaced(selected: Set<Long>) {
+        selectedIds.clear()
+        selectedIds.addAll(selected)
+        updateBottomBar()
     }
 
     override fun onProfileToggled(profileId: Long, isSelected: Boolean, totalSelected: Int) {

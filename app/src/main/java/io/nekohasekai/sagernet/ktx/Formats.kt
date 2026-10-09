@@ -107,7 +107,8 @@ fun String.decodeBase64UrlSafe(): String {
 class SubscriptionFoundException(val link: String) : RuntimeException()
 
 suspend fun parseProxies(text: String): List<AbstractBean> {
-    val rawLines = text.split('\n').map { it.trim() }.filter { it.isNotBlank() }
+    // Lines starting with '#' are comments (a subscription's way of disabling a node), as in Exclave.
+    val rawLines = text.split('\n').map { it.trim() }.filter { it.isNotBlank() && !it.startsWith('#') }
     val isSingleLink = rawLines.size == 1
 
     val schemes = listOf("ss://", "ssr://", "vmess://", "vless://", "trojan://", "trojan-go://", "socks://", "socks5://", "hysteria://", "hysteria2://", "hy2://", "tuic://", "juicity://", "snell://", "anytls://", "awg://", "wireguard://", "sn://")

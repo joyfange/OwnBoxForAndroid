@@ -175,6 +175,7 @@ class ConfigurationFragment @JvmOverloads constructor(
     interface SelectCallback {
         fun returnProfile(profileId: Long)
         fun onProfileToggled(profileId: Long, isSelected: Boolean, totalSelected: Int) {}
+        fun onSelectionReplaced(selected: Set<Long>) {}
     }
 
     companion object {
@@ -214,6 +215,31 @@ class ConfigurationFragment @JvmOverloads constructor(
         }
         (activity as? SelectCallback)?.onProfileToggled(profileId, isNowSelected, count)
     }
+
+    /** Multi-select bulk actions on the nodes the current tab shows (after search filtering). */
+    fun bulkSelect(action: BulkSelect) {
+        if (!multiSelect) return
+        val visible = getCurrentGroupFragment()?.adapter?.configurationIdList?.toList() ?: emptyList()
+        val snapshot: Set<Long>
+        synchronized(multiSelectedIds) {
+            when (action) {
+                BulkSelect.ALL -> multiSelectedIds.addAll(visible)
+                BulkSelect.INVERT -> visible.forEach { id ->
+                    if (!multiSelectedIds.remove(id)) multiSelectedIds.add(id)
+                }
+                BulkSelect.CLEAR -> multiSelectedIds.clear()
+            }
+            snapshot = LinkedHashSet(multiSelectedIds)
+        }
+        if (::adapter.isInitialized) {
+            adapter.groupFragments.values.forEach { fragment ->
+                fragment.adapter?.refreshAllProfileState()
+            }
+        }
+        (activity as? SelectCallback)?.onSelectionReplaced(snapshot)
+    }
+
+    enum class BulkSelect { ALL, INVERT, CLEAR }
 
     @Volatile
     private var selectedProxySnapshot = selectedItem?.id ?: 0L
@@ -2964,6 +2990,8 @@ class ConfigurationFragment @JvmOverloads constructor(
             val configurationList = HashMap<Long, ProxyEntity>()
             private val pendingTrafficUpdates = HashSet<Long>()
             private val profileStatePayload = Any()
+            /** Live speed-test sample: only the result text of a card whose stats row is already shown changes. */
+            private val speedLivePayload = Any()
 
             private fun getItem(profileId: Long): ProxyEntity {
                 var profile = configurationList[profileId]
@@ -3038,9 +3066,11 @@ class ConfigurationFragment @JvmOverloads constructor(
                 position: Int,
                 payloads: List<Any>,
             ) {
-                if (payloads.isNotEmpty() && payloads.all { it === profileStatePayload }) {
+                if (payloads.isNotEmpty() && payloads.all { it === profileStatePayload || it === speedLivePayload }) {
                     try {
-                        holder.bindProfileState(getItemAt(position))
+                        val item = getItemAt(position)
+                        if (payloads.any { it === profileStatePayload }) holder.bindProfileState(item)
+                        if (payloads.any { it === speedLivePayload }) holder.bindSpeedLive(item)
                     } catch (ignored: NullPointerException) { // when group deleted
                     }
                 } else {
@@ -3142,6 +3172,10 @@ class ConfigurationFragment @JvmOverloads constructor(
 
             override fun getItemCount(): Int {
                 return configurationIdList.size
+            }
+
+            fun refreshAllProfileState() {
+                if (itemCount > 0) notifyItemRangeChanged(0, itemCount, profileStatePayload)
             }
 
             fun refreshProfileState(profileIds: Set<Long>) {
@@ -3254,9 +3288,12 @@ class ConfigurationFragment @JvmOverloads constructor(
             val liveSpeedTests = HashMap<Long, SpeedTestSnapshot>()
 
             fun updateSpeedTestLive(profileId: Long, sample: SpeedTestSnapshot) {
-                liveSpeedTests[profileId] = sample
+                val first = liveSpeedTests.put(profileId, sample) == null
                 val index = configurationIdList.indexOf(profileId)
-                if (index >= 0) notifyItemChanged(index)
+                // The first sample may reveal the stats row (layout change); later ones only update its text.
+                if (index >= 0) {
+                    if (first || sample.done) notifyItemChanged(index) else notifyItemChanged(index, speedLivePayload)
+                }
             }
 
             fun clearSpeedTestLive() {
@@ -3894,6 +3931,22 @@ class ConfigurationFragment @JvmOverloads constructor(
                 editButton.isEnabled = !started
                 removeButton.isEnabled = !started
                 applySelected(selected)
+            }
+
+            fun bindSpeedLive(proxyEntity: ProxyEntity) {
+                if (!::entity.isInitialized || entity.id != proxyEntity.id || statsRow.visibility != View.VISIBLE) {
+                    bind(proxyEntity)
+                    return
+                }
+                val live = adapter?.liveSpeedTests?.get(proxyEntity.id)
+                val liveText = if (live != null && !live.done) {
+                    when (live.stage) {
+                        SpeedTestQueueRunner.STAGE_DOWNLOAD -> "↓ ${getString(R.string.speed_test_rate_mbps, live.downloadBitsPerSecond / 1_000_000.0)}"
+                        SpeedTestQueueRunner.STAGE_UPLOAD -> "↑ ${getString(R.string.speed_test_rate_mbps, live.uploadBitsPerSecond / 1_000_000.0)}"
+                        else -> null
+                    }
+                } else null
+                bindTestResult(proxyEntity, liveText ?: speedTestResultText(proxyEntity))
             }
 
             fun bindTraffic(proxyEntity: ProxyEntity) {
