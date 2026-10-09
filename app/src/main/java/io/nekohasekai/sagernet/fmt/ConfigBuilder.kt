@@ -750,7 +750,6 @@ fun buildConfig(
             servers = mutableListOf()
             rules = mutableListOf()
             independent_cache = true
-            disable_expire = true
         }
 
         fun autoDnsDomainStrategy(s: String, isProxied: Boolean = false): String? {
@@ -1215,7 +1214,6 @@ fun buildConfig(
                     // 测速配置必须与正式连接一致（对齐 husi）：沿用统一的服务器
                     // 域名解析策略。曾强制空——测速解析出的 IP/协议族与真实路径不同。
                     _hack_config_map["domain_strategy"] = defaultServerDomainStrategy
-                    _hack_config_map["bind_address_no_port"] = true
 
                     _hack_config_map["tag"] = tagOut
 
@@ -1504,7 +1502,6 @@ fun buildConfig(
                 type = "direct"
                 // Ensure both direct and bypass outbounds bind to Android default physical network interface
                 _hack_config_map["network_strategy"] = "default"
-                _hack_config_map["bind_address_no_port"] = true
                 if (ipv6Mode == IPv6Mode.DISABLE) {
                     _hack_config_map["domain_strategy"] = "ipv4_only"
                 } else if (ipv6Mode == IPv6Mode.ONLY) {
@@ -1649,30 +1646,33 @@ fun buildConfig(
             // 构建最优先前置路由规则（须位于所有用户规则之前）
             val topRouteRules = mutableListOf<Rule_DefaultOptions>()
 
-            // 1. sing-box 1.13：sniff（须位于规则最前）
+            // 1. 53 端口 DNS 先进内置 DNS 引擎，不被嗅探/解析阻塞（对齐官方 3.0.5）
+            topRouteRules.add(Rule_DefaultOptions().apply {
+                port = listOf(53)
+                action = "hijack-dns"
+            })
+
+            // 2. sniff：嗅探域名供后续分流
             if (needSniff) {
                 topRouteRules.add(Rule_DefaultOptions().apply {
                     action = "sniff"
                 })
             }
 
-            // 2. resolve 动作：强制单栈解析杜绝远端 VPS 双栈泄露；用户显式开启 resolveDestination 时按策略传出
-            if (DataStore.resolveDestination || ipv6Mode == IPv6Mode.DISABLE || ipv6Mode == IPv6Mode.ONLY) {
+            // 3. 非 53 端口但嗅探为 DNS 的流量（需在 sniff 之后才能匹配）
+            topRouteRules.add(Rule_DefaultOptions().apply {
+                protocol = listOf("dns")
+                action = "hijack-dns"
+            })
+
+            // 3b. resolve：仅在用户显式开启「解析目标地址」时执行，避免对所有连接强插解析
+            //（IPv6 关闭时出站的 ipv4_only 策略与下方 ip_version 拒绝规则已防止双栈泄露）
+            if (DataStore.resolveDestination) {
                 topRouteRules.add(Rule_DefaultOptions().apply {
                     action = "resolve"
                     strategy = genDomainStrategy(true)
                 })
             }
-
-            // 3. hijack-dns 拦截入站 DNS 流量进入内置 DNS 引擎
-            topRouteRules.add(Rule_DefaultOptions().apply {
-                port = listOf(53)
-                action = "hijack-dns"
-            })
-            topRouteRules.add(Rule_DefaultOptions().apply {
-                protocol = listOf("dns")
-                action = "hijack-dns"
-            })
 
             // 4. IP 版本禁用规则
             if (ipv6Mode == IPv6Mode.DISABLE) {

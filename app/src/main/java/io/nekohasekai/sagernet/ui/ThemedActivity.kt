@@ -1,11 +1,17 @@
 package io.nekohasekai.sagernet.ui
 
 import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.view.PixelCopy
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.annotation.StringRes
 import androidx.appcompat.app.AppCompatActivity
@@ -38,6 +44,15 @@ abstract class ThemedActivity : AppCompatActivity {
     private var lastAccentColor: Int = 0
     private var lastBaseColor: Int = 0
     private var lastBaseLightColor: Int = 0
+    /** Set while [switchThemeSmoothly] drives the change, so the uiMode callback does not recreate a second time. */
+    private var themeSwitchInProgress = false
+
+    companion object {
+        /** Last frame of the activity being recreated for a theme change; faded out over the new one, then freed. */
+        private var themeSnapshot: Bitmap? = null
+        private const val POPUP_DISMISS_DELAY_MS = 180L
+        private const val CROSSFADE_MS = 220L
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         lastUseSystemTheme = DataStore.useSystemTheme
@@ -143,7 +158,84 @@ abstract class ThemedActivity : AppCompatActivity {
 
         if (newConfig.uiMode != uiMode) {
             uiMode = newConfig.uiMode
-            ActivityCompat.recreate(this)
+            if (!themeSwitchInProgress) ActivityCompat.recreate(this)
+        }
+    }
+
+    override fun onPostCreate(savedInstanceState: Bundle?) {
+        super.onPostCreate(savedInstanceState)
+        val snapshot = themeSnapshot ?: return
+        themeSnapshot = null
+        val decor = window.decorView as? ViewGroup ?: run { snapshot.recycle(); return }
+        val cover = ImageView(this).apply {
+            setImageBitmap(snapshot)
+            scaleType = ImageView.ScaleType.FIT_XY
+            isClickable = false
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        decor.addView(cover, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        // Fade only once the new theme has drawn its first frame, so there is never a blank or half-styled frame.
+        cover.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                cover.viewTreeObserver.removeOnPreDrawListener(this)
+                cover.animate().alpha(0f).setDuration(CROSSFADE_MS).withLayer().withEndAction {
+                    decor.removeView(cover)
+                    cover.setImageDrawable(null)
+                    snapshot.recycle()
+                }.start()
+                return true
+            }
+        })
+    }
+
+    /**
+     * Applies a night mode / theme change with a single activity recreation and a crossfade, instead of the
+     * AppCompat uiMode recreation plus a manual recreate (two rebuilds, visible stutter), and waits for the
+     * menu or dialog that triggered it to finish dismissing so its shadow is not left behind on screen.
+     */
+    fun switchThemeSmoothly() {
+        val decor = window.decorView
+        decor.postDelayed({
+            if (isFinishing || isDestroyed) return@postDelayed
+            captureSnapshot { bitmap ->
+                if (isFinishing || isDestroyed) { bitmap?.recycle(); return@captureSnapshot }
+                themeSnapshot?.recycle()
+                themeSnapshot = bitmap
+                themeSwitchInProgress = true
+                Theme.applyNightTheme()
+                ActivityCompat.recreate(this)
+            }
+        }, POPUP_DISMISS_DELAY_MS)
+    }
+
+    private fun captureSnapshot(done: (Bitmap?) -> Unit) {
+        val decor = window.decorView
+        val w = decor.width
+        val h = decor.height
+        if (w <= 0 || h <= 0) return done(null)
+        val bitmap = try {
+            Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        } catch (_: Throwable) {
+            return done(null)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            // PixelCopy reads the GPU frame, so hardware bitmaps and blur are captured exactly and nothing is redrawn.
+            try {
+                PixelCopy.request(window, bitmap, { result ->
+                    if (result == PixelCopy.SUCCESS) done(bitmap) else { bitmap.recycle(); done(null) }
+                }, Handler(Looper.getMainLooper()))
+            } catch (_: Throwable) {
+                bitmap.recycle()
+                done(null)
+            }
+        } else {
+            try {
+                decor.draw(Canvas(bitmap))
+                done(bitmap)
+            } catch (_: Throwable) {
+                bitmap.recycle()
+                done(null)
+            }
         }
     }
 

@@ -280,10 +280,16 @@ class SettingsPreferenceFragment : PreferenceFragmentCompat(), OnPreferenceDataS
         val nightTheme = findPreference<SimpleMenuPreference>(Key.NIGHT_THEME)!!
         nightTheme.setOnPreferenceChangeListener { _, newTheme ->
             val mode = (newTheme as String).toInt()
+            if (mode == DataStore.nightTheme) return@setOnPreferenceChangeListener true
             DataStore.nightTheme = mode
             Theme.currentNightMode = mode
-            Theme.applyNightTheme()
-            activity?.recreate()
+            val host = activity
+            if (host is ThemedActivity) {
+                host.switchThemeSmoothly()
+            } else {
+                Theme.applyNightTheme()
+                host?.recreate()
+            }
             true
         }
         val appLanguage = findPreference<SimpleMenuPreference>(Key.APP_LANGUAGE)!!

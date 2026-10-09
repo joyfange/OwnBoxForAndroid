@@ -591,6 +591,15 @@ class BaseService {
         var upstreamInterfaceName: String?
 
         suspend fun preInit() {
+            // 启动瞬间先同步绑定当前物理网络，首个连接无需等待 NetworkCallback 回调（对齐官方 3.0.5/3.0.6）
+            if (SagerNet.underlyingNetwork == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                runCatching {
+                    SagerNet.connectivity.activeNetwork?.let { active ->
+                        SagerNet.underlyingNetwork = active
+                        upstreamInterfaceName = SagerNet.connectivity.getLinkProperties(active)?.interfaceName
+                    }
+                }
+            }
             // 只负责 underlyingNetwork / 网卡名跟踪，供 VpnService.setUnderlyingNetworks。
             // 「网络变化时重置出站」由 DataStore.networkChangeResetConnections 控制，
             // 经 NativeInterface → Libcore.setNetworkChangeResetConnections →
@@ -725,6 +734,8 @@ class BaseService {
                     data.changeState(State.Connected)
                     data.cacheRecoveryAttempts = 0
                     data.networkSwitchRetryAttempts = 0
+
+                    DataStore.vpnService?.updateUnderlyingNetwork()
 
                     lateInit()
                 } catch (_: CancellationException) { // if the job was cancelled, it is canceller's responsibility to call stopRunner

@@ -16,7 +16,7 @@ require (
 	// module graph 所需占位值，实际源码始终由下方 replace 指向 CI 检出的官方 tag。
 	github.com/sagernet/sing-box v0.0.0
 	github.com/sagernet/sing-quic v0.7.2-0.20261002084117-75c3ac4fa12b
-	github.com/sagernet/sing-tun v0.9.7-0.20261002083955-3f8acd9da65b
+	github.com/sagernet/sing-tun v0.9.7-0.20261009022811-5c2edb183cc9
 	github.com/sagernet/sing-vmess v0.2.9-0.20260929152519-9b95ab8c9478
 	github.com/ulikunitz/xz v0.5.15
 	golang.org/x/crypto v0.54.0 // indirect

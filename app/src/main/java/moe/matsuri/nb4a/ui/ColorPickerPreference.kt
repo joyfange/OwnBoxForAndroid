@@ -100,7 +100,13 @@ class ColorPickerPreference @JvmOverloads constructor(
     }
 
     private fun recreateHost() {
-        (context as? Activity)?.let { ActivityCompat.recreate(it) }
+        val host = context as? Activity ?: return
+        if (host is io.nekohasekai.sagernet.ui.ThemedActivity) {
+            host.switchThemeSmoothly()
+        } else {
+            io.nekohasekai.sagernet.utils.Theme.applyNightTheme()
+            ActivityCompat.recreate(host)
+        }
     }
 
     private fun sectionTitle(text: String) = TextView(context).apply {
@@ -162,7 +168,6 @@ class ColorPickerPreference @JvmOverloads constructor(
                 DataStore.nightTheme = 2
                 Theme.currentNightMode = 2
             }
-            Theme.applyNightTheme()
             callChangeListener(themeId)
             notifyChanged()
             recreateHost()

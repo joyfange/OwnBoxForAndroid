@@ -257,22 +257,12 @@ class VpnService : BaseVpnService(),
             }
         }
 
-        // 当未启用应用分流且混合入站可用时，才向系统追加 HTTP 代理（Android 10+），避免破坏绕过/代理应用分流规则
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !DataStore.mixedInboundDisabled && !proxyApps) {
-            builder.setHttpProxy(
-                ProxyInfo.buildDirectProxy(
-                    LOCALHOST,
-                    DataStore.mixedPort,
-                    DataStore.httpProxyBypass.lines().mapNotNull { line ->
-                        line.trim().takeIf { it.isNotBlank() && !it.startsWith("#") }
-                    },
-                )
-            )
-        }
+        // 纯 TUN：不再向系统注册全局 HTTP 代理（对齐官方 3.0.5），避免应用经环回 HTTP 代理二次转发拖慢上传。
 
         metered = DataStore.meteredNetwork
         if (Build.VERSION.SDK_INT >= 29) builder.setMetered(metered)
         conn = builder.establish() ?: throw NullConnectionException()
+        updateUnderlyingNetwork()
 
         return conn!!.fd
     }
