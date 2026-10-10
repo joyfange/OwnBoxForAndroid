@@ -427,8 +427,36 @@ class StatsBar @JvmOverloads constructor(
     private var activeLeafOwner: Long = 0L
     private var leafRefreshJob: Job? = null
 
+    /*
+     * Settings this bar used to read from the database on the main thread several times per speed tick (every
+     * second while connected) and per status redraw. They are cached here (main thread only) and cleared by
+     * [invalidatePrefs] when MainActivity sees the key change, on every resume and on every service state change.
+     */
+    private var cachedShowLandingIp: Boolean? = null
+    private var cachedTestIsHttps: Boolean? = null
+    private var cachedSelectedProxy: Long? = null
+
+    private val landingIpEnabled: Boolean
+        get() = cachedShowLandingIp ?: DataStore.showLandingIp.also { cachedShowLandingIp = it }
+
+    private val testIsHttps: Boolean
+        get() = cachedTestIsHttps
+            ?: DataStore.connectionTestURL.startsWith("https://", ignoreCase = true).also { cachedTestIsHttps = it }
+
+    private val selectedProxyId: Long
+        get() = cachedSelectedProxy ?: DataStore.selectedProxy.also { cachedSelectedProxy = it }
+
+    /** Re-read the cached settings on next use (selected profile, landing IP switch, test URL). */
+    fun invalidatePrefs() {
+        runOnUi {
+            cachedShowLandingIp = null
+            cachedTestIsHttps = null
+            cachedSelectedProxy = null
+        }
+    }
+
     private fun landingKey(): Long {
-        val selected = DataStore.selectedProxy
+        val selected = selectedProxyId
         return if (activeLeafId > 0L && activeLeafOwner == selected) activeLeafId else selected
     }
 
@@ -450,9 +478,9 @@ class StatsBar @JvmOverloads constructor(
     private fun scheduleInitialLanding() {
         initialLandingJob?.cancel()
         initialLandingJob = null
-        if (!DataStore.showLandingIp || currentState != BaseService.State.Connected) return
+        if (!landingIpEnabled || currentState != BaseService.State.Connected) return
         updateStatusViews()
-        if (activeLeafId > 0L && activeLeafOwner == DataStore.selectedProxy) {
+        if (activeLeafId > 0L && activeLeafOwner == selectedProxyId) {
             ensureLandingIp()
             return
         }
@@ -466,7 +494,7 @@ class StatsBar @JvmOverloads constructor(
 
     /** Show what is known for the current node; look up only when nothing recent (10 min) is known. */
     private fun ensureLandingIp() {
-        if (!DataStore.showLandingIp || currentState != BaseService.State.Connected) return
+        if (!landingIpEnabled || currentState != BaseService.State.Connected) return
         val key = landingKey()
         val cached = LandingIpManager.getCachedInfo()
         if (cached != null && LandingIpManager.cachedProfileId == key) {
@@ -501,11 +529,11 @@ class StatsBar @JvmOverloads constructor(
     fun onActiveLeafUpdate(leafId: Long) {
         runOnUi {
             if (leafId <= 0L) return@runOnUi
-            val selected = DataStore.selectedProxy
+            val selected = selectedProxyId
             if (leafId == activeLeafId && activeLeafOwner == selected) return@runOnUi
             activeLeafId = leafId
             activeLeafOwner = selected
-            if (currentState != BaseService.State.Connected || !DataStore.showLandingIp) return@runOnUi
+            if (currentState != BaseService.State.Connected || !landingIpEnabled) return@runOnUi
             initialLandingJob?.cancel()
             initialLandingJob = null
             if (LandingIpManager.cachedProfileId == leafId && LandingIpManager.getCachedInfo() != null) {
@@ -547,7 +575,7 @@ class StatsBar @JvmOverloads constructor(
     }
 
     private fun formatStatus(latency: Int = lastMeasuredLatency): String {
-        val isHttps = DataStore.connectionTestURL.startsWith("https://")
+        val isHttps = testIsHttps
         val handshakeType = if (isHttps) "HTTPS" else "HTTP"
         return if (latency > 0) "$handshakeType 握手 ${latency}ms" else app.getString(R.string.vpn_connected)
     }
@@ -560,14 +588,14 @@ class StatsBar @JvmOverloads constructor(
                 val cached = LandingIpManager.getCachedInfo()
                     ?.takeIf { LandingIpManager.cachedProfileId == key && it.ip.isNotBlank() }
                 val known = cached ?: LandingIpManager.getLastKnown(key)
-                if (DataStore.showLandingIp && known != null) {
+                if (landingIpEnabled && known != null) {
                     // lookup failed or still running: show this node's last confirmed exit, not the fallback
                     statusIpText.setTextIfChanged("${known.countryFlag} ${known.countryCode} ${known.ip}")
                     statusIpText.visibility = View.VISIBLE
-                } else if (DataStore.showLandingIp && landingBusy()) {
+                } else if (landingIpEnabled && landingBusy()) {
                     statusIpText.setTextIfChanged(context.getString(R.string.landing_ip_querying))
                     statusIpText.visibility = View.VISIBLE
-                } else if (DataStore.showLandingIp) {
+                } else if (landingIpEnabled) {
                     statusIpText.setTextIfChanged(LandingIpManager.getProfileFallbackDisplay(landingKey()))
                     statusIpText.visibility = View.VISIBLE
                 } else {
@@ -578,7 +606,7 @@ class StatsBar @JvmOverloads constructor(
                     statusTitleText.visibility = View.GONE
                     statusText.setTextIfChanged(customStatus)
                 } else {
-                    val isHttps = DataStore.connectionTestURL.startsWith("https://", ignoreCase = true)
+                    val isHttps = testIsHttps
                     val handshakeType = if (isHttps) "HTTPS" else "HTTP"
                     if (latency > 0) {
                         statusTitleText.setTextIfChanged("$handshakeType 握手延迟")
@@ -586,7 +614,7 @@ class StatsBar @JvmOverloads constructor(
                         statusText.setTextIfChanged("${latency}ms")
                     } else {
                         statusTitleText.visibility = View.GONE
-                        if (known == null && DataStore.showLandingIp && landingBusy()) {
+                        if (known == null && landingIpEnabled && landingBusy()) {
                             statusText.setTextIfChanged(context.getString(R.string.landing_ip_querying))
                         } else {
                             statusText.setTextIfChanged(app.getString(R.string.vpn_connected))
@@ -610,21 +638,23 @@ class StatsBar @JvmOverloads constructor(
 
     fun refreshDisplay() {
         runOnUi {
+            invalidatePrefs()
             updateThemeColors()
             if (currentState == BaseService.State.Connected) {
-                btnIpDetail?.visibility = if (DataStore.showLandingIp) View.VISIBLE else View.GONE
+                btnIpDetail?.visibility = if (landingIpEnabled) View.VISIBLE else View.GONE
                 updateStatusViews()
-                if (DataStore.showLandingIp && initialLandingJob == null) ensureLandingIp()
+                if (landingIpEnabled && initialLandingJob == null) ensureLandingIp()
             }
         }
     }
 
     fun changeState(state: BaseService.State) {
         runOnUi {
+            invalidatePrefs()
             currentState = state
             updateHideOnScroll()
             if (state == BaseService.State.Connected) {
-                btnIpDetail?.visibility = if (DataStore.showLandingIp) View.VISIBLE else View.GONE
+                btnIpDetail?.visibility = if (landingIpEnabled) View.VISIBLE else View.GONE
                 scheduleInitialLanding()
                 testConnection(silent = true)
             } else {
@@ -666,7 +696,7 @@ class StatsBar @JvmOverloads constructor(
         landingRetryJob = scope.launch(Dispatchers.Main) {
             delay(wait)
             landingRetryJob = null
-            if (currentState == BaseService.State.Connected && DataStore.showLandingIp && landingKey() == key) {
+            if (currentState == BaseService.State.Connected && landingIpEnabled && landingKey() == key) {
                 refreshLandingIp(forceRefresh = true, isRetry = true)
             }
         }
@@ -676,7 +706,7 @@ class StatsBar @JvmOverloads constructor(
         runOnUi {
             if (!isRetry) cancelLandingRetry()
             if (currentState != BaseService.State.Connected) return@runOnUi
-            if (!DataStore.showLandingIp) {
+            if (!landingIpEnabled) {
                 btnIpDetail?.visibility = View.GONE
                 updateStatusViews()
                 return@runOnUi
@@ -699,14 +729,14 @@ class StatsBar @JvmOverloads constructor(
                 val result = try {
                     LandingIpManager.queryLandingIp(currentProfile, forceRefresh = forceRefresh) { _ ->
                         runOnUi {
-                            if (currentState == BaseService.State.Connected && DataStore.showLandingIp) updateStatusViews()
+                            if (currentState == BaseService.State.Connected && landingIpEnabled) updateStatusViews()
                         }
                     }
                 } finally {
                     landingPending--
                 }
                 if (currentState != BaseService.State.Connected) return@launch
-                if (!DataStore.showLandingIp) {
+                if (!landingIpEnabled) {
                     btnIpDetail?.visibility = View.GONE
                     updateStatusViews()
                     return@launch

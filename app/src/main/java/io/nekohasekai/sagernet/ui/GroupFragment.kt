@@ -88,6 +88,7 @@ class GroupFragment : ToolbarFragment(R.layout.layout_group),
 
             override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
                 val index = viewHolder.bindingAdapterPosition
+                if (index == RecyclerView.NO_POSITION) return
                 groupAdapter.remove(index)
                 undoManager.remove(index to (viewHolder as GroupHolder).proxyGroup)
             }
@@ -96,7 +97,10 @@ class GroupFragment : ToolbarFragment(R.layout.layout_group),
                 recyclerView: RecyclerView,
                 viewHolder: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder,
             ): Boolean {
-                groupAdapter.move(viewHolder.bindingAdapterPosition, target.bindingAdapterPosition)
+                val from = viewHolder.bindingAdapterPosition
+                val to = target.bindingAdapterPosition
+                if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION) return false
+                groupAdapter.move(from, to)
                 return true
             }
 
@@ -202,9 +206,11 @@ class GroupFragment : ToolbarFragment(R.layout.layout_group),
                     groups.remove(ungroupedGroup)
                 }
             }
-            groupList.clear()
-            groupList.addAll(groups)
-            groupListView.post {
+            // The list is read by the RecyclerView on the main thread: swap it there, never from this worker
+            // (clearing it here while a layout pass ran was an IndexOutOfBounds / "Inconsistency detected" crash).
+            onMainDispatcher {
+                groupList.clear()
+                groupList.addAll(groups)
                 notifyDataSetChanged()
             }
         }
@@ -267,8 +273,9 @@ class GroupFragment : ToolbarFragment(R.layout.layout_group),
 
         override fun undo(actions: List<Pair<Int, ProxyGroup>>) {
             for ((index, item) in actions) {
-                groupList.add(index, item)
-                notifyItemInserted(index)
+                val at = index.coerceIn(0, groupList.size)
+                groupList.add(at, item)
+                notifyItemInserted(at)
             }
         }
 
@@ -281,12 +288,14 @@ class GroupFragment : ToolbarFragment(R.layout.layout_group),
         }
 
         override suspend fun groupAdd(group: ProxyGroup) {
-            groupList.add(group)
             delay(300L)
 
             onMainDispatcher {
                 undoManager.flush()
-                notifyItemInserted(groupList.size - 1)
+                if (groupList.none { it.id == group.id }) {
+                    groupList.add(group)
+                    notifyItemInserted(groupList.size - 1)
+                }
 
                 if (group.type == GroupType.SUBSCRIPTION) {
                     GroupUpdater.startUpdate(group, true)
@@ -295,8 +304,7 @@ class GroupFragment : ToolbarFragment(R.layout.layout_group),
         }
 
         override suspend fun groupRemoved(groupId: Long) {
-            val index = groupList.indexOfFirst { it.id == groupId }
-            if (index == -1) return
+            if (onMainDispatcher { groupList.none { it.id == groupId } }) return
             val fewGroupsLeft = SagerDatabase.groupDao.allGroups().size <= 2
             onMainDispatcher {
                 undoManager.flush()
@@ -305,35 +313,36 @@ class GroupFragment : ToolbarFragment(R.layout.layout_group),
                         reload()
                     }
                 } else {
-                    groupList.removeAt(index)
-                    notifyItemRemoved(index)
+                    // look the row up again here: the list may have changed while the count was read
+                    val index = groupList.indexOfFirst { it.id == groupId }
+                    if (index != -1) {
+                        groupList.removeAt(index)
+                        notifyItemRemoved(index)
+                    }
                 }
             }
         }
 
         override suspend fun groupUpdated(group: ProxyGroup) {
-            val index = groupList.indexOfFirst { it.id == group.id }
-            if (index == -1) {
-                reload()
-                return
+            val found = onMainDispatcher {
+                val index = groupList.indexOfFirst { it.id == group.id }
+                if (index != -1) {
+                    undoManager.flush()
+                    groupList[index] = group
+                    notifyItemChanged(index)
+                }
+                index != -1
             }
-            groupList[index] = group
-            onMainDispatcher {
-                undoManager.flush()
-
-                notifyItemChanged(index)
-            }
+            if (!found) reload()
         }
 
         override suspend fun groupUpdated(groupId: Long) {
-            val index = groupList.indexOfFirst { it.id == groupId }
-            if (index == -1) {
-                reload()
-                return
+            val found = onMainDispatcher {
+                val index = groupList.indexOfFirst { it.id == groupId }
+                if (index != -1) notifyItemChanged(index)
+                index != -1
             }
-            onMainDispatcher {
-                notifyItemChanged(index)
-            }
+            if (!found) reload()
         }
 
     }
@@ -609,6 +618,8 @@ class GroupFragment : ToolbarFragment(R.layout.layout_group),
             runOnDefaultDispatcher {
                 val size = SagerDatabase.proxyDao.countByGroup(group.id)
                 onMainDispatcher {
+                    // the holder may have been recycled for another group while the count was read
+                    if (!isAdded || proxyGroup.id != group.id) return@onMainDispatcher
                     @Suppress("DEPRECATION") when (group.type) {
                         GroupType.BASIC -> {
                             if (size == 0L) {
@@ -622,7 +633,7 @@ class GroupFragment : ToolbarFragment(R.layout.layout_group),
                             groupStatus.text = if (size == 0L) {
                                 getString(R.string.group_status_empty_subscription)
                             } else {
-                                val date = Date(group.subscription!!.lastUpdated * 1000L)
+                                val date = Date((group.subscription?.lastUpdated ?: 0) * 1000L)
                                 getString(
                                     R.string.group_status_proxies_subscription,
                                     size,

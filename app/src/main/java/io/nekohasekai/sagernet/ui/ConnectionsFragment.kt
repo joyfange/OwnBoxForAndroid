@@ -172,6 +172,8 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections),
     }
 
     private fun refreshNow() {
+        // a dialog callback can land after the view is gone; viewLifecycleOwner would throw then
+        if (view == null) return
         viewLifecycleOwner.lifecycleScope.launch { refresh() }
     }
 
@@ -195,6 +197,7 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections),
                     .setTitle(R.string.connections_close_all)
                     .setMessage(R.string.connections_close_all_confirm)
                     .setPositiveButton(android.R.string.ok) { _, _ ->
+                        if (view == null) return@setPositiveButton
                         viewLifecycleOwner.lifecycleScope.launch {
                             withContext(Dispatchers.IO) {
                                 runCatching { service?.closeAllConnections() }

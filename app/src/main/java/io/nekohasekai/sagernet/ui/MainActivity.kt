@@ -25,6 +25,7 @@ import androidx.core.view.GravityCompat
 import androidx.core.view.WindowCompat
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import androidx.preference.PreferenceDataStore
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.navigation.NavigationView
@@ -76,6 +77,10 @@ import io.nekohasekai.sagernet.ui.MessageStore
 import io.nekohasekai.sagernet.ktx.deduplicateProxies
 import io.nekohasekai.sagernet.ktx.Logs
 import moe.matsuri.nb4a.utils.Util
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ThemedActivity(),
     SagerConnection.Callback,
@@ -192,17 +197,46 @@ class MainActivity : ThemedActivity(),
         }
     }
 
+    private var resumePrefsJob: Job? = null
+
     override fun onResume() {
         super.onResume()
         MessageStore.setCurrentActivity(this)
 
-        if (DataStore.hideFromRecentApps) {
-            applyHideFromRecentApps(DataStore.hideFromRecentApps)
+        // Two settings reads (database queries) and an ActivityManager binder call used to run here on the main
+        // thread at every return to the app; they run off it now and only the menu update comes back.
+        resumePrefsJob?.cancel()
+        resumePrefsJob = lifecycleScope.launch {
+            val clashApi = withContext(Dispatchers.IO) {
+                if (DataStore.hideFromRecentApps) applyHideFromRecentApps(true)
+                DataStore.enableClashAPI
+            }
+            refreshNavMenu(clashApi)
         }
 
-        checkClipboardOnResume()
+        // Android 10+ only lets the focused app read the clipboard, and the window gets focus after onResume:
+        // read there, otherwise the copied-link import prompt never appeared on return to the app.
+        clipboardCheckPending = true
+        if (hasWindowFocus()) {
+            clipboardCheckPending = false
+            checkClipboardOnResume()
+        }
         binding.stats.refreshDisplay()
-        refreshNavMenu(DataStore.enableClashAPI)
+    }
+
+    private var clipboardCheckPending = false
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && clipboardCheckPending) {
+            clipboardCheckPending = false
+            checkClipboardOnResume()
+        }
+    }
+
+    override fun onPause() {
+        clipboardCheckPending = false
+        super.onPause()
     }
 
     private var lastPromptedClipboard: String = ""
@@ -731,7 +765,7 @@ class MainActivity : ThemedActivity(),
         showWhenConnected: Boolean,
         animate: Boolean,
     ) {
-        val showControls = fragment is ConfigurationFragment || DataStore.showBottomBar
+        val showControls = fragment is ConfigurationFragment || showBottomBarSetting
         binding.stats.useExternalScrollDriver = fragment is ConfigurationFragment
         binding.stats.syncMainControls(
             showControls,
@@ -755,6 +789,13 @@ class MainActivity : ThemedActivity(),
             }
         }
     }
+
+    /** Read on every page switch; cached so the switch does not query the database. Cleared when the key changes. */
+    @Volatile
+    private var cachedShowBottomBar: Boolean? = null
+
+    private val showBottomBarSetting: Boolean
+        get() = cachedShowBottomBar ?: DataStore.showBottomBar.also { cachedShowBottomBar = it }
 
     private fun refreshConfigurationProfileState() {
         val fragment = currentMainFragment ?: visiblePage()
@@ -850,8 +891,12 @@ class MainActivity : ThemedActivity(),
     }
 
     override fun onPreferenceDataStoreChanged(store: PreferenceDataStore, key: String) {
+        if (key == Key.SHOW_BOTTOM_BAR) cachedShowBottomBar = null
         runOnMainDispatcher {
             if (isDestroyed || isFinishing) return@runOnMainDispatcher
+            when (key) {
+                Key.PROFILE_ID, Key.SHOW_LANDING_IP, Key.CONNECTION_TEST_URL -> binding.stats.invalidatePrefs()
+            }
             when (key) {
                 Key.SERVICE_MODE -> onBinderDied()
                 Key.GROUP_LAYOUT_MODE, Key.PROFILE_CARD_STYLE, Key.SHOW_SUBSCRIPTION_INFO_CARD,

@@ -192,6 +192,29 @@ class ConfigurationFragment @JvmOverloads constructor(
 
     val alwaysShowAddress by lazy { DataStore.alwaysShowAddress }
 
+    /*
+     * Settings read for every profile card bound and every tap. Each DataStore read is a database query on the main
+     * thread (slow while the service process is writing), and a list pass binds dozens of cards, so they are read
+     * once and cached; [onPreferenceDataStoreChanged] clears a value when its key is written.
+     */
+    @Volatile
+    private var cachedCardStyle: Int? = null
+
+    @Volatile
+    private var cachedHapticFeedback: Boolean? = null
+
+    @Volatile
+    private var cachedShowSubscriptionCard: Boolean? = null
+
+    val profileCardStyle: Int
+        get() = cachedCardStyle ?: DataStore.profileCardStyle.also { cachedCardStyle = it }
+
+    val hapticFeedback: Boolean
+        get() = cachedHapticFeedback ?: DataStore.hapticFeedback.also { cachedHapticFeedback = it }
+
+    val showSubscriptionInfoCard: Boolean
+        get() = cachedShowSubscriptionCard ?: DataStore.showSubscriptionInfoCard.also { cachedShowSubscriptionCard = it }
+
     val multiSelectedIds = java.util.Collections.synchronizedSet(LinkedHashSet<Long>()).apply {
         if (initialSelectedIds != null) {
             addAll(initialSelectedIds.toList())
@@ -810,7 +833,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                                 val group = adapter.groupList[pos]
                                 // Skip "All" sentinel tab and ungrouped tabs
                                 if (!group.ungrouped && group.id != ALL_GROUPS_SENTINEL_ID) {
-                                    if (DataStore.hapticFeedback) {
+                                    if (hapticFeedback) {
                                         v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                                     }
                                     showGroupSettingsConfirmDialog(group)
@@ -878,6 +901,11 @@ class ConfigurationFragment @JvmOverloads constructor(
     }
 
     override fun onPreferenceDataStoreChanged(store: PreferenceDataStore, key: String) {
+        if (store === DataStore.configurationStore) when (key) {
+            Key.PROFILE_CARD_STYLE -> cachedCardStyle = null
+            Key.HAPTIC_FEEDBACK -> cachedHapticFeedback = null
+            Key.SHOW_SUBSCRIPTION_INFO_CARD -> cachedShowSubscriptionCard = null
+        }
         runOnMainDispatcher {
             // 只响应外部设置显式更改 editingGroup 的事件，阻断 configurationStore 的自触发，且用户正在拖拽时不打断
             if (store === DataStore.profileCacheStore && key == Key.PROFILE_GROUP) {
@@ -2508,6 +2536,14 @@ class ConfigurationFragment @JvmOverloads constructor(
         private val alwaysShowAddress: Boolean
             get() = (parentFragment as? ConfigurationFragment)?.alwaysShowAddress == true
 
+        /** Cached in the parent fragment: a tap no longer queries the database on the main thread. */
+        private val hapticEnabled: Boolean
+            get() = (parentFragment as? ConfigurationFragment)?.hapticFeedback ?: DataStore.hapticFeedback
+
+        private val subscriptionCardEnabled: Boolean
+            get() = (parentFragment as? ConfigurationFragment)?.showSubscriptionInfoCard
+                ?: DataStore.showSubscriptionInfoCard
+
         private fun setupItemTouchHelper() {
             if (select) return
             
@@ -2520,7 +2556,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                     recyclerView: RecyclerView,
                     viewHolder: RecyclerView.ViewHolder
                 ): Int {
-                    val dragFlags = if (DataStore.groupLayoutMode == 1) {
+                    val dragFlags = if (layoutManager is FixedGridLayoutManager) {
                         ItemTouchHelper.UP or ItemTouchHelper.DOWN or ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT
                     } else {
                         ItemTouchHelper.UP or ItemTouchHelper.DOWN
@@ -2540,7 +2576,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                     viewHolder: RecyclerView.ViewHolder,
                 ): Int {
                     return if (isEnabled) {
-                        if (DataStore.groupLayoutMode == 1) {
+                        if (layoutManager is FixedGridLayoutManager) {
                             ItemTouchHelper.UP or ItemTouchHelper.DOWN or ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT
                         } else {
                             ItemTouchHelper.UP or ItemTouchHelper.DOWN
@@ -2783,6 +2819,12 @@ class ConfigurationFragment @JvmOverloads constructor(
             configurationListView.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
             setupLayoutManager()
             configurationListView.layoutManager = layoutManager
+            // onViewCreated can run again for the same fragment (state restore / onResume): drop the previous
+            // adapter's listeners so it does not keep receiving (and posting) every profile update.
+            adapter?.let {
+                ProfileManager.removeListener(it)
+                GroupManager.removeListener(it)
+            }
             adapter = ConfigurationAdapter()
             ProfileManager.addListener(adapter!!)
             GroupManager.addListener(adapter!!)
@@ -2821,7 +2863,7 @@ class ConfigurationFragment @JvmOverloads constructor(
             val root = targetView ?: return
             val card = root.findViewById<MaterialCardView>(R.id.card_subscription_info) ?: return
 
-            if (select || !::proxyGroup.isInitialized || !DataStore.showSubscriptionInfoCard) {
+            if (select || !::proxyGroup.isInitialized || !subscriptionCardEnabled) {
                 subscriptionCardToken++
                 lastCardRenderKey = null
                 card.isGone = true
@@ -2850,7 +2892,7 @@ class ConfigurationFragment @JvmOverloads constructor(
             val root = view ?: return
             val card = root.findViewById<MaterialCardView>(R.id.card_subscription_info) ?: return
             subscriptionCardToken++
-            if (select || !::proxyGroup.isInitialized || !DataStore.showSubscriptionInfoCard) {
+            if (select || !::proxyGroup.isInitialized || !subscriptionCardEnabled) {
                 card.isGone = true
                 return
             }
@@ -3553,12 +3595,16 @@ class ConfigurationFragment @JvmOverloads constructor(
 
             override suspend fun onRemoved(groupId: Long, profileId: Long) {
                 if (groupId != proxyGroup.id && !isAllGroupsTab) return
-                val index = configurationIdList.indexOf(profileId)
-                if (index < 0) return
+                if (configurationIdList.indexOf(profileId) < 0) return
 
                 configurationListView.post {
-                    configurationIdList.removeAt(index)
+                    // Look the row up again on the main thread: the list may have changed (filter, reload, another
+                    // removal) since the check above, and removing the stale index dropped the wrong card or crashed.
+                    val index = configurationIdList.indexOf(profileId)
                     configurationList.remove(profileId)
+                    allConfigurationIdList.remove(profileId)
+                    if (index < 0) return@post
+                    configurationIdList.removeAt(index)
                     notifyItemRemoved(index)
                     refreshFromPosition(index - 1)
                     updateSubscriptionInfoCard()
@@ -3576,7 +3622,8 @@ class ConfigurationFragment @JvmOverloads constructor(
 
             override suspend fun groupUpdated(groupId: Long) {
                 if (groupId != proxyGroup.id) return
-                proxyGroup = SagerDatabase.groupDao.getById(groupId)!!
+                // null when the group was deleted meanwhile: an NPE on this worker thread crashed the app
+                proxyGroup = SagerDatabase.groupDao.getById(groupId) ?: return
                 reloadProfiles()
             }
 
@@ -3740,7 +3787,7 @@ class ConfigurationFragment @JvmOverloads constructor(
 
             init {
                 view.setOnClickListener {
-                    if (DataStore.hapticFeedback) it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    if (hapticEnabled) it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                     val proxyEntity = entity
                     if (select) {
                         val pf = parentFragment as? ConfigurationFragment
@@ -3761,19 +3808,19 @@ class ConfigurationFragment @JvmOverloads constructor(
                 }
                 profileStatus.isFocusable = false
                 editButton.setOnClickListener {
-                    if (DataStore.hapticFeedback) it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    if (hapticEnabled) it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                     showNodeCascadingMenu(it, entity)
                 }
                 removeButton.setOnClickListener {
-                    if (DataStore.hapticFeedback) it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    if (hapticEnabled) it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                     removeProfile(entity)
                 }
                 doubleColumnMenuButton.setOnClickListener {
-                    if (DataStore.hapticFeedback) it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    if (hapticEnabled) it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                     showNodeCascadingMenu(it, entity)
                 }
                 shareLayout.setOnClickListener {
-                    if (DataStore.hapticFeedback) it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    if (hapticEnabled) it.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                     val proxyEntity = entity
                     if (!select && proxyEntity.type != ProxyEntity.TYPE_CHAIN && proxyEntity.type != ProxyEntity.TYPE_BALANCER) {
                         showNodeCascadingMenu(it, proxyEntity)
@@ -3875,7 +3922,8 @@ class ConfigurationFragment @JvmOverloads constructor(
                 val ctx = card.context
                 val surface = ctx.getColorAttr(R.attr.colorSurface)
                 card.setCardBackgroundColor(surface)
-                if (DataStore.profileCardStyle == 1) {
+                val cardStyle = (parentFragment as? ConfigurationFragment)?.profileCardStyle ?: DataStore.profileCardStyle
+                if (cardStyle == 1) {
                     val primary = ctx.getColorAttr(R.attr.colorPrimary)
                     selectedIndicator.isVisible = false
                     card.cardElevation = 0f
