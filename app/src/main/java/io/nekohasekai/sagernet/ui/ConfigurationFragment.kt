@@ -1941,13 +1941,35 @@ class ConfigurationFragment @JvmOverloads constructor(
         var proxyN = 0
         val finishedN = AtomicInteger(0)
 
-        fun update(profile: ProxyEntity) {
+        init {
+            // A fixed height: the text used to change between 4 and 5+ lines as node names wrapped, and every change
+            // resized the dialog window mid-test, a visible hitch in its spinner.
+            binding.nowTesting.minLines = 5
+            binding.nowTesting.maxLines = 5
+            binding.nowTesting.ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+
+        @Volatile private var latestProfile: ProxyEntity? = null
+        private val uiUpdatePending = java.util.concurrent.atomic.AtomicBoolean(false)
+
+        fun update(result: ProxyEntity) {
             if (dialogStatus.get() != 2) {
-                results.add(profile)
+                results.add(result)
             }
+            val done = finishedN.addAndGet(1)
+            latestProfile = result
+            // Redraw the dialog / notification at most ~8 times a second (and always for the last result) instead
+            // of once per tested node.
+            val last = done >= proxyN
+            if (!last && !uiUpdatePending.compareAndSet(false, true)) return
             runOnMainDispatcher {
+                if (!last) {
+                    delay(120L)
+                    uiUpdatePending.set(false)
+                }
+                val profile = latestProfile ?: result
                 val context = context ?: return@runOnMainDispatcher
-                val progress = finishedN.addAndGet(1)
+                val progress = finishedN.get()
                 val status = dialogStatus.get()
                 notification?.updateNotification(
                     progress,
@@ -3394,12 +3416,36 @@ class ConfigurationFragment @JvmOverloads constructor(
                 if (noTraffic) {
                     (parentFragment as? ConfigurationFragment)?.refreshProfileState()
                 }
+                if (configurationIdList.indexOf(profile.id) < 0) return
+                // A group URL test delivers dozens of results a second. Applying each one in its own main-thread
+                // message rebound a card (and sometimes its row neighbours) per result, which made the test dialog's
+                // spinner stutter; results are now collected and applied together at most every ~100 ms.
+                configurationListView.post {
+                    pendingProfileUpdates[profile.id] = profile to noTraffic
+                    if (!profileFlushScheduled) {
+                        profileFlushScheduled = true
+                        configurationListView.postDelayed(flushProfileUpdates, 100L)
+                    }
+                }
+            }
+
+            private val pendingProfileUpdates = LinkedHashMap<Long, Pair<ProxyEntity, Boolean>>()
+            private var profileFlushScheduled = false
+            private val flushProfileUpdates = Runnable {
+                profileFlushScheduled = false
+                if (pendingProfileUpdates.isEmpty()) return@Runnable
+                val batch = pendingProfileUpdates.values.toList()
+                pendingProfileUpdates.clear()
+                if (::undoManager.isInitialized) {
+                    undoManager.flush()
+                }
+                for ((profile, noTraffic) in batch) applyProfileUpdate(profile, noTraffic)
+            }
+
+            private fun applyProfileUpdate(profile: ProxyEntity, noTraffic: Boolean) {
                 val index = configurationIdList.indexOf(profile.id)
                 if (index < 0) return
-                configurationListView.post {
-                    if (::undoManager.isInitialized) {
-                        undoManager.flush()
-                    }
+                run {
                     val cachedProfile = configurationList[profile.id]
                     val updatedProfile = if (noTraffic && cachedProfile != null) {
                         profile.copy(
@@ -3415,7 +3461,7 @@ class ConfigurationFragment @JvmOverloads constructor(
                             cachedProfile.dirty != updatedProfile.dirty ||
                             cachedProfile.displayName() != updatedProfile.displayName()
                     configurationList[profile.id] = updatedProfile
-                    if (noTraffic && !contentChanged) return@post
+                    if (noTraffic && !contentChanged) return@run
 
                     val newHasMiddleRow = hasMiddleRow(updatedProfile)
                     val holder = layoutManager.findViewByPosition(index)

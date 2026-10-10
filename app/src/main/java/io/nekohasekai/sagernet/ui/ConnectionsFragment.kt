@@ -119,6 +119,11 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections),
                 emptyList()
             } else {
                 ConnectionInfo.parseSnapshot(runCatching { svc.queryConnections(currentFilter) }.getOrNull())
+            }.also { parsed ->
+                // Load app icons here, off the main thread: the first bind of each app's card used to decode its
+                // icon while scrolling, a small hitch per new app.
+                val ctx = context
+                if (ctx != null) for (c in parsed) iconFor(ctx, c)
             }
         }
         val now = System.currentTimeMillis()
@@ -232,16 +237,19 @@ class ConnectionsFragment : ToolbarFragment(R.layout.layout_connections),
             .show()
     }
 
-    private val iconCache = HashMap<String, Drawable?>()
+    // Filled on the IO thread inside refresh(), read on the main thread while binding.
+    private val iconCache = java.util.concurrent.ConcurrentHashMap<String, Any>()
+    private val noIcon = Any()
 
     private fun iconFor(context: Context, c: ConnectionInfo): Drawable? {
         val pkg = c.packageName.ifBlank {
             if (c.userId >= 0) PackageCache[c.userId]?.firstOrNull().orEmpty() else ""
         }
         if (pkg.isBlank()) return null
-        return iconCache.getOrPut(pkg) {
-            runCatching { context.packageManager.getApplicationIcon(pkg) }.getOrNull()
-        }
+        iconCache[pkg]?.let { return it as? Drawable }
+        val icon = runCatching { context.packageManager.getApplicationIcon(pkg) }.getOrNull()
+        iconCache[pkg] = icon ?: noIcon
+        return icon
     }
 
     private object Diff : DiffUtil.ItemCallback<ConnectionInfo>() {
