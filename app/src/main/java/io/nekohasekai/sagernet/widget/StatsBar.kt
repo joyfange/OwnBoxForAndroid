@@ -42,6 +42,7 @@ class StatsBar @JvmOverloads constructor(
         private const val INITIAL_HIDE_DELAY_MS = 100L
         private const val SCROLL_TOGGLE_THRESHOLD_DP = 8f
         private const val CONNECTING_MAX_MS = 15_000L
+        private const val SWITCH_HOLD_MS = 12_000L
     }
 
     private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
@@ -276,7 +277,42 @@ class StatsBar @JvmOverloads constructor(
     }
 
     private fun shouldShow(): Boolean {
-        return allowShow && currentState == BaseService.State.Connected
+        return allowShow && (currentState == BaseService.State.Connected || holdingSwitch())
+    }
+
+    /*
+     * Switching to a profile the running core cannot select in place restarts the service: Connected -> Stopping ->
+     * Connecting -> Connected. The bar used to drop its exit row (shrinking to half height), slide out, and slide
+     * back in for the new profile. While such a switch is in progress it now stays up at full height and says
+     * 正在连接…, like Throne. The hold ends on Connected, on Idle, or after [SWITCH_HOLD_MS].
+     */
+    private var switchHoldUntil = 0L
+    private var switchHoldJob: Job? = null
+
+    private fun holdingSwitch(): Boolean = android.os.SystemClock.elapsedRealtime() < switchHoldUntil
+
+    private fun beginSwitchHold() {
+        switchHoldUntil = android.os.SystemClock.elapsedRealtime() + SWITCH_HOLD_MS
+        switchHoldJob?.cancel()
+        val scope = (context as? MainActivity)?.lifecycleScope ?: return
+        switchHoldJob = scope.launch(Dispatchers.Main) {
+            delay(SWITCH_HOLD_MS)
+            switchHoldJob = null
+            endSwitchHold()
+        }
+    }
+
+    private fun endSwitchHold() {
+        val wasHolding = switchHoldUntil != 0L
+        switchHoldUntil = 0L
+        switchHoldJob?.cancel()
+        switchHoldJob = null
+        if (wasHolding && currentState != BaseService.State.Connected) {
+            // the restart did not come back: hide the way a normal disconnect does
+            updateHideOnScroll()
+            applyTransition(if (allowShow) Transition.HideAfterStart else Transition.HideImmediate)
+            updateStatusViews()
+        }
     }
 
     private fun resetScrollDriverState() {
@@ -323,6 +359,9 @@ class StatsBar @JvmOverloads constructor(
             currentState = state
             allowShow = showControls
             when {
+                // a profile switch is restarting the service: keep the bar where it is
+                showControls && state != BaseService.State.Connected && state != BaseService.State.Idle &&
+                    holdingSwitch() -> Unit
                 !showControls || state != BaseService.State.Connected -> {
                     applyTransition(
                         if (animate && showControls) Transition.HideAfterStart else Transition.HideImmediate
@@ -552,6 +591,7 @@ class StatsBar @JvmOverloads constructor(
     /** The user picked another profile. */
     fun onProfileSwitched() {
         runOnUi {
+            if (currentState == BaseService.State.Connected) beginSwitchHold()
             resetActiveLeaf()
             cancelLandingRetry()
             scheduleInitialLanding()
@@ -668,6 +708,17 @@ class StatsBar @JvmOverloads constructor(
                         }
                     }
                 }
+            } else if (holdingSwitch() && currentState != BaseService.State.Idle) {
+                // restarting for a profile switch: same rows as connected, so the bar keeps its height
+                statusTitleText.visibility = View.GONE
+                val connectingText = context.getString(R.string.connecting)
+                if (landingIpEnabled) {
+                    statusIpText.setTextIfChanged(connectingText)
+                    statusIpText.visibility = View.VISIBLE
+                } else {
+                    statusIpText.visibility = View.GONE
+                }
+                statusText.setTextIfChanged(connectingText)
             } else {
                 statusTitleText.visibility = View.GONE
                 statusIpText.visibility = View.GONE
@@ -700,7 +751,15 @@ class StatsBar @JvmOverloads constructor(
             invalidatePrefs()
             currentState = state
             updateHideOnScroll()
+            if (state == BaseService.State.Idle) {
+                switchHoldUntil = 0L
+                switchHoldJob?.cancel()
+                switchHoldJob = null
+            }
             if (state == BaseService.State.Connected) {
+                switchHoldUntil = 0L
+                switchHoldJob?.cancel()
+                switchHoldJob = null
                 btnIpDetail?.visibility = if (landingIpEnabled) View.VISIBLE else View.GONE
                 scheduleInitialLanding()
                 testConnection(silent = true)

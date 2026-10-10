@@ -936,7 +936,8 @@ class MainActivity : ThemedActivity(),
                 }
                 Key.PROFILE_ID -> {
                     LandingIpManager.clearCache()
-                    if (DataStore.serviceState.connected && DataStore.showLandingIp) {
+                    // also without the exit row: the bar stays up through a restart for the switch
+                    if (DataStore.serviceState.connected) {
                         binding.stats.onProfileSwitched()
                     }
                 }

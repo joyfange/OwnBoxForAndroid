@@ -85,19 +85,32 @@ class ProxyInstance(profile: ProxyEntity, var service: BaseService.Interface? = 
     private fun startUrlTestSync() = runOnDefaultDispatcher {
         var since = System.currentTimeMillis()
         val lastWritten = HashMap<Long, Int>()
+        // policy group profile id -> its outbound tag (a group card shows the delay of the node it uses now)
+        val groupTags = HashMap<Long, String>()
+        config.balancerMemberMap.keys.forEach { groupId ->
+            config.trafficMap.entries.firstOrNull { (_, ents) -> ents.any { it.id == groupId } }?.key
+                ?.takeIf { it.isNotBlank() }?.let { groupTags[groupId] = it }
+        }
         while (!closing) {
             kotlinx.coroutines.delay(URL_TEST_SYNC_INTERVAL_MS)
             if (closing) break
             try {
+                val changed = ArrayList<Long>()
+                syncGroupDelays(groupTags, lastWritten, changed)
                 val raw = box.urlTestResultsSince(since)
-                if (raw.isNullOrBlank()) continue
+                if (raw.isNullOrBlank()) {
+                    if (changed.isNotEmpty() && !closing) {
+                        val ids = changed.toLongArray()
+                        service?.data?.binder?.broadcast { it.cbUrlTestUpdate(ids) }
+                    }
+                    continue
+                }
                 val tagToId = HashMap<String, Long>()
                 // keys are profile ids; a group-type balancer member is keyed by its negated id
                 config.profileTagMap.forEach { (key, tag) ->
                     if (tag.isNotBlank() && key != 0L) tagToId[tag] = kotlin.math.abs(key)
                 }
                 val results = org.json.JSONObject(raw)
-                val changed = ArrayList<Long>()
                 val keys = results.keys()
                 while (keys.hasNext()) {
                     val tag = keys.next()
@@ -120,6 +133,27 @@ class ProxyInstance(profile: ProxyEntity, var service: BaseService.Interface? = 
             } catch (e: Exception) {
                 Logs.w(e)
             }
+        }
+    }
+
+    /**
+     * A policy group card showed the delay of the group's own last manual test and never moved. It now shows the
+     * latest automatic test of the node the group routes through right now (sing-box keeps test history per node,
+     * not per group), written the same way a test result is.
+     */
+    private fun syncGroupDelays(groupTags: Map<Long, String>, lastWritten: HashMap<Long, Int>, changed: ArrayList<Long>) {
+        if (groupTags.isEmpty()) return
+        val all = box.urlTestResultsSince(0L)
+        if (all.isNullOrBlank()) return
+        val history = org.json.JSONObject(all)
+        groupTags.forEach { (groupId, groupTag) ->
+            val leafTag = runCatching { box.getActiveOutboundTag(groupTag) }.getOrNull()
+            if (leafTag.isNullOrBlank() || leafTag == groupTag) return@forEach
+            val delay = history.optJSONObject(leafTag)?.optInt("d", 0) ?: 0
+            if (delay <= 0 || lastWritten[groupId] == delay) return@forEach
+            SagerDatabase.proxyDao.updatePingResult(groupId, 1, delay, null)
+            lastWritten[groupId] = delay
+            changed.add(groupId)
         }
     }
 

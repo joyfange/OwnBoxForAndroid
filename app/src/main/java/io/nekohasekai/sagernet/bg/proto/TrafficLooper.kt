@@ -115,7 +115,8 @@ class TrafficLooper
         val newData = idMap[id] ?: return
         oldData?.apply {
             tag = selectorNowFakeTag
-            ignore = true
+            // its own tag still counts what route rules send to it directly
+            ignore = false
             // post traffic when switch
             if (DataStore.profileTrafficStatistics) {
                 data.proxy?.safeConfig?.trafficMap?.get(tag)?.firstOrNull()?.let {
@@ -126,22 +127,16 @@ class TrafficLooper
             }
         }
         val currentConfig = data.proxy?.safeConfig
-        val balancerMembers = currentConfig?.balancerMemberMap
-        // If old proxy was balancer, set old members to ignore = true
-        balancerMembers?.get(selectorNowId)?.forEach { memberId ->
-            idMap[memberId]?.ignore = true
-        }
-
+        // The selected item is counted under the selector "proxy" only when the config has one; a policy group or
+        // node selected on its own is routed to its own tag (there is no "proxy" outbound), and retagging it to
+        // "proxy" queried a counter that never moves: the card froze at the value it had when the core started.
+        val mainTag = currentConfig?.mainTag.orEmpty()
+        val countAsProxy = mainTag.isEmpty() || mainTag == TAG_PROXY
         selectorNowFakeTag = newData.tag
         selectorNowId = id
         newData.apply {
-            tag = TAG_PROXY
+            if (countAsProxy) tag = TAG_PROXY
             ignore = false
-        }
-
-        // If new proxy is balancer, set new members to ignore = false
-        balancerMembers?.get(id)?.forEach { memberId ->
-            idMap[memberId]?.ignore = false
         }
     }
 
@@ -222,7 +217,6 @@ class TrafficLooper
 
             val snapshot = withStateLock {
                 val currentConfig = proxy.safeConfig ?: return@withStateLock null
-                val balancerMemberMap = currentConfig.balancerMemberMap
 
                 if (trafficUpdater == null) {
                     idMap.clear()
@@ -239,7 +233,9 @@ class TrafficLooper
                                 tx = ent.tx,
                                 rxBase = ent.rx,
                                 txBase = ent.tx,
-                                ignore = currentConfig.selectorGroupId >= 0L,
+                                // every tag counts its own routed traffic; sing-box counts a connection once,
+                                // on the outbound it was routed to, so nothing is counted twice
+                                ignore = false,
                             )
                             idMap[ent.id] = item
                             tagMap[tag] = item
@@ -248,11 +244,8 @@ class TrafficLooper
                     }
                     if (currentConfig.selectorGroupId >= 0L) {
                         selectMainLocked(currentConfig.mainEntId)
-                    } else {
-                        balancerMemberMap.values.forEach { memberIds ->
-                            memberIds.forEach { idMap[it]?.ignore = false }
-                        }
                     }
+                    currentConfig.mainTag.takeIf { it.isNotBlank() }?.let { tags.add(it) }
                     //
                     trafficUpdater = TrafficUpdater(
                         box = proxy.box, items = idMap.values.toList()
@@ -263,48 +256,17 @@ class TrafficLooper
                 trafficUpdater!!.updateAll()
                 currentCoroutineContext().ensureActive()
 
-                // Accumulate member traffic into Balancer entity
-                balancerMemberMap.forEach { (balancerId, memberIds) ->
-                    val balancerItem = idMap[balancerId] ?: return@forEach
-                    val members = memberIds.filter { it != balancerId }.mapNotNull { idMap[it] }
-                    if (members.isNotEmpty()) {
-                        var sumTxRate = 0L
-                        var sumRxRate = 0L
-                        var sumTxDelta = 0L
-                        var sumRxDelta = 0L
-                        var hasDelta = false
-                        for (m in members) {
-                            if (m === balancerItem) continue
-                            sumTxRate += m.txRate
-                            sumRxRate += m.rxRate
-                            sumTxDelta += (m.tx - m.txBase)
-                            sumRxDelta += (m.rx - m.rxBase)
-                            if (m.hasTrafficDelta) hasDelta = true
-                        }
-                        if (sumTxRate > 0L || sumRxRate > 0L || sumTxDelta > 0L || sumRxDelta > 0L) {
-                            balancerItem.txRate = sumTxRate
-                            balancerItem.rxRate = sumRxRate
-                            balancerItem.tx = balancerItem.txBase + sumTxDelta
-                            balancerItem.rx = balancerItem.rxBase + sumRxDelta
-                            if (hasDelta) {
-                                balancerItem.hasTrafficDelta = true
-                            }
-                        } else if (balancerItem.tag == TAG_PROXY || balancerId == selectorNowId) {
-                            // Active Balancer proxy: keep real rates queried from TAG_PROXY
-                        }
-                    }
-                }
-
-                // add all non-bypass to "main"
+                // A policy group's card shows the traffic routed to the group's own tag. Its members' counters
+                // only hold what route rules send to a member directly, so they are not added into the group (that
+                // put one node's traffic on every group sharing it, and froze groups whose members stayed idle).
+                // Totals add each tag once.
                 var mainTxRate = 0L
                 var mainRxRate = 0L
                 var mainTx = 0L
                 var mainRx = 0L
-                val balancerMemberIds = balancerMemberMap.entries.flatMap { (bId, mIds) ->
-                    mIds.filter { it != bId }
-                }.toSet()
+                val countedTags = HashSet<String>()
                 idMap.forEach { (id, it) ->
-                    if (id > 0L && id !in balancerMemberIds) {
+                    if (id > 0L && countedTags.add(it.tag)) {
                         if (!it.ignore) {
                             mainTxRate += it.txRate
                             mainRxRate += it.rxRate
