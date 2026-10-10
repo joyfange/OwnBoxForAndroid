@@ -222,6 +222,26 @@ class MainActivity : ThemedActivity(),
             checkClipboardOnResume()
         }
         binding.stats.refreshDisplay()
+        realignBottomControls()
+    }
+
+    /**
+     * Back from the background the stats bar can be put back (translation reset, no layout pass) while the start
+     * button stays where it was laid out against the bar's old position, so it sat low over the exit-IP row. One
+     * frame later the bar is re-synced to the service state and the coordinator is laid out again: the button is
+     * re-anchored on the bar's top edge and the bar's cradle is redrawn around it.
+     */
+    private fun realignBottomControls() {
+        binding.coordinator.post {
+            if (isFinishing || isDestroyed) return@post
+            syncMainControls(
+                showWhenConnected = DataStore.serviceState == BaseService.State.Connected,
+                animate = false,
+            )
+            binding.fab.translationY = 0f
+            binding.stats.requestLayout()
+            binding.coordinator.requestLayout()
+        }
     }
 
     private var clipboardCheckPending = false
