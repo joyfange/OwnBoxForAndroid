@@ -44,6 +44,7 @@ class SagerConnection(
         fun cbSpeedUpdate(stats: SpeedDisplayData) {}
         suspend fun cbTrafficUpdate(data: TrafficDataBatch) {}
         fun cbSelectorUpdate(id: Long) {}
+        fun cbUrlTestUpdate(profileIds: LongArray) {}
 
         fun stateChanged(state: BaseService.State, profileName: String?, msg: String?)
 
@@ -92,6 +93,13 @@ class SagerConnection(
             runOnMainDispatcher {
                 callback.cbSelectorUpdate(id)
             }
+        }
+
+        override fun cbUrlTestUpdate(profileIds: LongArray?) {
+            val ids = profileIds ?: return
+            if (ids.isEmpty()) return
+            // called on a binder thread; the receiver reads the database, so it is not moved to the main thread
+            callback?.cbUrlTestUpdate(ids)
         }
 
         override fun missingPlugin(profileName: String, pluginName: String) {

@@ -898,6 +898,17 @@ class MainActivity : ThemedActivity(),
         ProfileManager.postUpdate(data.items)
     }
 
+    /**
+     * The service wrote policy-group test results into these profiles. Their cards are refreshed in place (the
+     * list batches the updates and never re-sorts for them); the database read stays off the main thread.
+     */
+    override fun cbUrlTestUpdate(profileIds: LongArray) {
+        runOnDefaultDispatcher {
+            val profiles = runCatching { ProfileManager.getProfiles(profileIds.toList()) }.getOrNull() ?: return@runOnDefaultDispatcher
+            for (profile in profiles) ProfileManager.postUpdate(profile, false)
+        }
+    }
+
     override fun cbSelectorUpdate(id: Long) {
         val old = DataStore.selectedProxy
         DataStore.selectedProxy = id

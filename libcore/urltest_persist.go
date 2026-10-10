@@ -131,3 +131,27 @@ func (b *BoxInstance) startURLTestHistorySaver() {
 		}
 	}()
 }
+
+// UrlTestResultsSince 返回 sinceMs（unix 毫秒）之后测出的单节点测速结果，JSON：{"tag":{"d":延迟,"t":毫秒时间}}。
+// 后台进程每隔一段时间取一次，把策略组自动测速的结果写进节点列表（参考 Exclave 的 observatory 回写）。
+// 只含成功的结果：sing-box 测速失败时直接删除该记录。没有新结果时返回空字符串。
+func (b *BoxInstance) UrlTestResultsSince(sinceMs int64) string {
+	snapshot := b.snapshotURLTestHistory()
+	if len(snapshot) == 0 {
+		return ""
+	}
+	fresh := make(map[string]persistedDelay)
+	for tag, item := range snapshot {
+		if item.Time > sinceMs {
+			fresh[tag] = item
+		}
+	}
+	if len(fresh) == 0 {
+		return ""
+	}
+	data, err := json.Marshal(fresh)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}

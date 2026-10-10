@@ -9,4 +9,6 @@ oneway interface ISagerNetServiceCallback {
   void cbSpeedUpdate(in SpeedDisplayData stats);
   void cbTrafficUpdate(in TrafficDataBatch stats);
   void cbSelectorUpdate(long id);
+  // policy-group (urltest) results written to these profiles' ping; refetch them from the database
+  void cbUrlTestUpdate(in long[] profileIds);
 }
