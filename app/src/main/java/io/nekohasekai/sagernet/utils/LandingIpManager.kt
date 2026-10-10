@@ -75,8 +75,18 @@ object LandingIpManager {
     @Volatile
     private var lastGoodLoaded = false
 
+    // v2: exits recorded before the lookup went through the selected item (it used route.final, i.e. direct when the
+    // route profile defaults to direct) are the phone's own IP; drop that old cache instead of showing it for a day.
     private fun prefs() = io.nekohasekai.sagernet.SagerNet.application
-        .getSharedPreferences("landing_ip_cache", android.content.Context.MODE_PRIVATE)
+        .getSharedPreferences("landing_ip_cache_v2", android.content.Context.MODE_PRIVATE)
+
+    private fun dropOldCache() {
+        runCatching {
+            val app = io.nekohasekai.sagernet.SagerNet.application
+            app.getSharedPreferences("landing_ip_cache", android.content.Context.MODE_PRIVATE).edit().clear().apply()
+            app.deleteSharedPreferences("landing_ip_cache")
+        }
+    }
 
     private fun LandingIpInfo.toJson(): String = JSONObject().apply {
         put("ip", ip); put("country", country); put("cc", countryCode); put("city", city)
@@ -106,6 +116,7 @@ object LandingIpManager {
         if (lastGoodLoaded) return
         synchronized(lastGood) {
             if (lastGoodLoaded) return
+            dropOldCache()
             runCatching {
                 val now = System.currentTimeMillis()
                 for ((k, v) in prefs().all) {

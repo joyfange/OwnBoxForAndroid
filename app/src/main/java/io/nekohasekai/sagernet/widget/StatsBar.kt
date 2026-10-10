@@ -41,6 +41,7 @@ class StatsBar @JvmOverloads constructor(
     companion object {
         private const val INITIAL_HIDE_DELAY_MS = 100L
         private const val SCROLL_TOGGLE_THRESHOLD_DP = 8f
+        private const val CONNECTING_MAX_MS = 15_000L
     }
 
     private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
@@ -475,10 +476,42 @@ class StatsBar @JvmOverloads constructor(
      */
     private var initialLandingJob: Job? = null
 
+    /*
+     * Connecting phase (like Throne): from connecting or switching profile until the routed node's exit is known,
+     * the exit row says only "正在连接…". It used to step through "落地 IP 未知 (点击重试)" -> "正在查询落地 IP..." ->
+     * (the group's old exit) -> the node's exit. The phase ends when the exit of the routed node is known, when
+     * every automatic retry has failed, or after [CONNECTING_MAX_MS] at most.
+     */
+    private var connecting = false
+    private var connectingJob: Job? = null
+
+    private fun beginConnecting() {
+        connecting = true
+        connectingJob?.cancel()
+        val scope = (context as? MainActivity)?.lifecycleScope ?: return
+        connectingJob = scope.launch(Dispatchers.Main) {
+            delay(CONNECTING_MAX_MS)
+            connectingJob = null
+            endConnecting()
+        }
+    }
+
+    private fun endConnecting() {
+        connectingJob?.cancel()
+        connectingJob = null
+        if (!connecting) return
+        connecting = false
+        updateStatusViews()
+    }
+
+    /** The routed node of the current selection is known (a group has reported which member it uses). */
+    private fun leafResolved(): Boolean = activeLeafId > 0L && activeLeafOwner == selectedProxyId
+
     private fun scheduleInitialLanding() {
         initialLandingJob?.cancel()
         initialLandingJob = null
         if (!landingIpEnabled || currentState != BaseService.State.Connected) return
+        beginConnecting()
         updateStatusViews()
         if (activeLeafId > 0L && activeLeafOwner == selectedProxyId) {
             ensureLandingIp()
@@ -546,11 +579,12 @@ class StatsBar @JvmOverloads constructor(
                 updateStatusViews()
                 return@runOnUi
             }
-            // Give the group a moment to move its connections to the new node before looking up the exit IP.
+            // The lookup dials the routed node itself, so it need not wait for the group to move its connections;
+            // a short beat only merges a burst of node changes into one lookup.
             leafRefreshJob?.cancel()
             val scope = (context as? MainActivity)?.lifecycleScope ?: return@runOnUi
             leafRefreshJob = scope.launch(Dispatchers.Main) {
-                delay(1200L)
+                delay(250L)
                 leafRefreshJob = null
                 if (currentState == BaseService.State.Connected && landingKey() == leafId) {
                     refreshLandingIp(forceRefresh = false)
@@ -587,8 +621,19 @@ class StatsBar @JvmOverloads constructor(
                 val key = landingKey()
                 val cached = LandingIpManager.getCachedInfo()
                     ?.takeIf { LandingIpManager.cachedProfileId == key && it.ip.isNotBlank() }
-                val known = cached ?: LandingIpManager.getLastKnown(key)
-                if (landingIpEnabled && known != null) {
+                val inPhase = connecting && landingIpEnabled
+                // while connecting only the routed node's own exit counts (not the group's or another node's)
+                val known = when {
+                    inPhase && !leafResolved() -> null
+                    cached != null -> cached
+                    inPhase -> LandingIpManager.getLastKnown(key, LandingIpManager.FRESH_MS)
+                    else -> LandingIpManager.getLastKnown(key)
+                }
+                if (inPhase && known != null) connecting = false
+                if (inPhase && known == null) {
+                    statusIpText.setTextIfChanged(context.getString(R.string.connecting))
+                    statusIpText.visibility = View.VISIBLE
+                } else if (landingIpEnabled && known != null) {
                     // lookup failed or still running: show this node's last confirmed exit, not the fallback
                     statusIpText.setTextIfChanged("${known.countryFlag} ${known.countryCode} ${known.ip}")
                     statusIpText.visibility = View.VISIBLE
@@ -614,7 +659,9 @@ class StatsBar @JvmOverloads constructor(
                         statusText.setTextIfChanged("${latency}ms")
                     } else {
                         statusTitleText.visibility = View.GONE
-                        if (known == null && landingIpEnabled && landingBusy()) {
+                        if (inPhase && known == null) {
+                            statusText.setTextIfChanged(context.getString(R.string.connecting))
+                        } else if (known == null && landingIpEnabled && landingBusy()) {
                             statusText.setTextIfChanged(context.getString(R.string.landing_ip_querying))
                         } else {
                             statusText.setTextIfChanged(app.getString(R.string.vpn_connected))
@@ -659,6 +706,9 @@ class StatsBar @JvmOverloads constructor(
                 testConnection(silent = true)
             } else {
                 btnIpDetail?.visibility = View.GONE
+                connecting = false
+                connectingJob?.cancel()
+                connectingJob = null
                 resetLatencyState()
                 resetActiveLeaf()
                 cancelLandingRetry()
@@ -688,6 +738,7 @@ class StatsBar @JvmOverloads constructor(
         }
         if (landingRetryCount >= landingRetryDelays.size) {
             landingRetryJob = null
+            endConnecting()
             return
         }
         val wait = landingRetryDelays[landingRetryCount++]

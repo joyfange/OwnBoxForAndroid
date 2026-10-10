@@ -55,6 +55,7 @@ abstract class BoxInstance(
 
     protected open suspend fun loadConfig() {
         box = Libcore.newSingBoxInstance(config.config, LocalResolverImpl)
+        box.setMainOutboundTag(config.mainTag)
     }
 
     open suspend fun init() {

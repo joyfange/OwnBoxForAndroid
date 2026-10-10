@@ -295,6 +295,8 @@ class ConfigBuildResult(
     var profileTagMap: Map<Long, String>,
     val selectorGroupId: Long,
     val balancerMemberMap: Map<Long, List<Long>> = emptyMap(),
+    /** Outbound tag of the selected item (a node, a chain or a policy group); not always "proxy". */
+    val mainTag: String = "",
 ) {
     data class IndexEntity(var chain: LinkedHashMap<Int, ProxyEntity>)
 }
@@ -376,6 +378,7 @@ fun buildConfig(
     val tagMap = HashMap<Long, String>()
     val balancerMemberMap = HashMap<Long, List<Long>>()
     val globalOutbounds = HashMap<Long, String>()
+    var mainTagOut = ""
     val readableNames = mutableSetOf(TAG_DIRECT, TAG_BYPASS, TAG_BLOCK, TAG_FRAGMENT, TAG_MIXED, TAG_PROXY)
     val group = SagerDatabase.groupDao.getById(proxy.groupId)
     val groupTag = group?.name?.trim()?.takeIf { it.isNotBlank() } ?: TAG_PROXY
@@ -1327,6 +1330,7 @@ fun buildConfig(
         }
 
         val mainProxyTag = (if (buildSelector || useAutoSelect || useLoadBalance) TAG_PROXY else tagMap[proxy.id]) ?: TAG_PROXY
+        mainTagOut = mainProxyTag
 
         if (!forTest) {
             // 关键安全隔离：本地回环、多播与链路本地地址强制直连，
@@ -1901,7 +1905,8 @@ fun buildConfig(
             trafficMap,
             tagMap,
             if (buildSelector || useAutoSelect || useLoadBalance) group?.id ?: 0L else -1L,
-            balancerMemberMap
+            balancerMemberMap,
+            mainTagOut,
         )
     }
 

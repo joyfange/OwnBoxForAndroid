@@ -128,6 +128,18 @@ type BoxInstance struct {
 	// 主实例的测速记录（持久化见 urltest_persist.go）
 	urlTestHistory   *urltest.HistoryStorage
 	lastSavedHistory string
+
+	// 主出口（界面上选中的那一项）对应的 outbound tag。选中策略组/单个节点时它不叫 "proxy"，
+	// 而分流配置的默认出口（route.final）可能是直连；落地 IP 探测必须按它解析，不能退回 Default()。
+	mainOutboundTag atomic.Value // string
+}
+
+// SetMainOutboundTag 记录主出口的 outbound tag（由 ConfigBuilder 给出）。
+func (b *BoxInstance) SetMainOutboundTag(tag string) {
+	if b == nil {
+		return
+	}
+	b.mainOutboundTag.Store(strings.TrimSpace(tag))
 }
 
 func (b *BoxInstance) urlTestTrace(stage string, format string, args ...any) {
@@ -461,9 +473,20 @@ func (b *BoxInstance) GetActiveOutboundTag(groupTag string) string {
 			return ""
 		}
 	} else {
+		mainTag, _ := b.mainOutboundTag.Load().(string)
 		var ok bool
-		detour, ok = b.Outbound().Outbound("proxy")
+		if mainTag != "" {
+			detour, ok = b.Outbound().Outbound(mainTag)
+		}
 		if !ok {
+			detour, ok = b.Outbound().Outbound("proxy")
+		}
+		if !ok {
+			if mainTag != "" {
+				// 主出口已知却不存在：不退回 Default()。它是 route.final，分流配置默认直连时会把落地 IP 查成本机 IP
+				return ""
+			}
+			// 自定义完整配置等没有主出口信息的情况，沿用旧行为
 			detour = b.Outbound().Default()
 		}
 	}
