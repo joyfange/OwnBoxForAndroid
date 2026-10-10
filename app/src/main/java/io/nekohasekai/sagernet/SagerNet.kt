@@ -185,14 +185,15 @@ class SagerNet : Application(),
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
 
-        if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN && isMainProcess) {
-            cleanWebview()
-            System.gc()
-        }
-        // In low-memory mode, aggressively free Go heap when OS asks us to trim.
-        // In high-performance mode, skip this to preserve warm connection pools.
-        if (!DataStore.performancePriorityMode) {
-            Libcore.forceGc()
+        // Off the main thread, and no forced Java GC: a full System.gc() each time the app went to the background made
+        // the heap start cold on return, and the first page switches after reopening the app stuttered.
+        val uiHidden = level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN && isMainProcess
+        val freeGo = !DataStore.performancePriorityMode
+        if (uiHidden || freeGo) runOnDefaultDispatcher {
+            if (uiHidden) cleanWebview()
+            // In low-memory mode, aggressively free Go heap when OS asks us to trim.
+            // In high-performance mode, skip this to preserve warm connection pools.
+            if (freeGo) runCatching { Libcore.forceGc() }
         }
     }
 

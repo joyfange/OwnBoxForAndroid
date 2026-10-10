@@ -181,6 +181,9 @@ class ConfigurationFragment @JvmOverloads constructor(
     companion object {
         /** Synthetic ProxyGroup ID used for the "All Groups" tab. Must be negative to avoid DB collision. */
         const val ALL_GROUPS_SENTINEL_ID = -1L
+
+        /** Writes the selected group off the main thread, one at a time and in order. */
+        private val selectedGroupWriter = java.util.concurrent.Executors.newSingleThreadExecutor()
     }
 
     lateinit var adapter: GroupPagerAdapter
@@ -401,8 +404,12 @@ class ConfigurationFragment @JvmOverloads constructor(
                 }
                 // Skip updating DataStore.selectedGroup for the synthetic "All" tab
                 if (group.id == ALL_GROUPS_SENTINEL_ID) return
-                if (DataStore.selectedGroup != group.id) {
-                    DataStore.selectedGroup = group.id
+                // A preference write is a synchronous database write (journal + fsync) and used to run on the main
+                // thread while the page was still sliding in. Writes go through one background thread, in order.
+                val groupId = group.id
+                selectedGroupWriter.execute {
+                    runCatching { if (DataStore.selectedGroup != groupId) DataStore.selectedGroup = groupId }
+                        .onFailure { Logs.w(it) }
                 }
             }
         }
@@ -504,10 +511,16 @@ class ConfigurationFragment @JvmOverloads constructor(
         }
     }
 
+    private var lastMenuTitleState = -1
+
     private fun updateToolbarMenuTitles() {
         if (!isToolbarInitialized) return
         val isAll = isCurrentAllGroups()
         val isSearching = currentSearchQuery.isNotBlank()
+        // Every setTitle makes the toolbar rebuild its menu; switching between two subscriptions changes nothing here.
+        val state = (if (isAll) 1 else 0) or (if (isSearching) 2 else 0)
+        if (state == lastMenuTitleState) return
+        lastMenuTitleState = state
         val exportItem = toolbar.menu.findItem(R.id.action_export)
         if (isSearching) {
             exportItem?.title = "导出搜索结果"
@@ -2607,27 +2620,57 @@ class ConfigurationFragment @JvmOverloads constructor(
             }
         }
 
+        private class MenuPrefs(
+            val hideUnavailable: Boolean, val allGroupsOrder: Int, val layoutMode: Int, val cardStyle: Int,
+        )
+
+        private var menuPrefsJob: kotlinx.coroutines.Job? = null
+
+        /**
+         * Runs each time a group page becomes the current one. Its settings are database reads; they used to run on
+         * the main thread in the middle of the page switch (slowest right after the app comes back from the
+         * background, when the service process has written to the database meanwhile), so they are read off it now.
+         */
         fun checkOrderMenu() {
             if (select) return
+            menuPrefsJob?.cancel()
+            menuPrefsJob = lifecycleScope.launch {
+                val prefs = withContext(Dispatchers.IO) {
+                    MenuPrefs(
+                        DataStore.hideUnavailableProfiles, DataStore.allGroupsOrder,
+                        DataStore.groupLayoutMode, DataStore.profileCardStyle,
+                    )
+                }
+                if (!isAdded || !isResumed) return@launch
+                applyOrderMenu(prefs)
+            }
+        }
 
-            val pf = requireParentFragment() as? ToolbarFragment ?: return
+        private fun MenuItem.checkIfNeeded() {
+            if (!isChecked) isChecked = true
+        }
+
+        private fun applyOrderMenu(prefs: MenuPrefs) {
+            val pf = parentFragment as? ToolbarFragment ?: return
             val menu = pf.toolbar.menu
-            menu.findItem(R.id.action_hide_unavailable)?.isChecked = DataStore.hideUnavailableProfiles
+            menu.findItem(R.id.action_hide_unavailable)?.let {
+                if (it.isChecked != prefs.hideUnavailable) it.isChecked = prefs.hideUnavailable
+            }
             val origin = menu.findItem(R.id.action_order_origin)
             val byName = menu.findItem(R.id.action_order_by_name)
             val byDelay = menu.findItem(R.id.action_order_by_delay)
-            val currentOrder = if (isAllGroupsTab) DataStore.allGroupsOrder else proxyGroup.order
+            val currentOrder = if (isAllGroupsTab) prefs.allGroupsOrder else proxyGroup.order
             when (currentOrder) {
                 GroupOrder.ORIGIN -> {
-                    origin.isChecked = true
+                    origin.checkIfNeeded()
                 }
 
                 GroupOrder.BY_NAME -> {
-                    byName.isChecked = true
+                    byName.checkIfNeeded()
                 }
 
                 GroupOrder.BY_DELAY -> {
-                    byDelay.isChecked = true
+                    byDelay.checkIfNeeded()
                 }
             }
 
@@ -2671,9 +2714,9 @@ class ConfigurationFragment @JvmOverloads constructor(
             
             val layoutSingle = menu.findItem(R.id.action_layout_single)
             val layoutDouble = menu.findItem(R.id.action_layout_double)
-            when (DataStore.groupLayoutMode) {
-                0 -> layoutSingle.isChecked = true
-                1 -> layoutDouble.isChecked = true
+            when (prefs.layoutMode) {
+                0 -> layoutSingle.checkIfNeeded()
+                1 -> layoutDouble.checkIfNeeded()
             }
             layoutSingle.setOnMenuItemClickListener {
                 it.isChecked = true
@@ -2694,9 +2737,9 @@ class ConfigurationFragment @JvmOverloads constructor(
 
             val cardClassic = menu.findItem(R.id.action_card_style_classic)
             val cardStroke = menu.findItem(R.id.action_card_style_stroke)
-            when (DataStore.profileCardStyle) {
-                1 -> cardStroke.isChecked = true
-                else -> cardClassic.isChecked = true
+            when (prefs.cardStyle) {
+                1 -> cardStroke.checkIfNeeded()
+                else -> cardClassic.checkIfNeeded()
             }
             cardClassic.setOnMenuItemClickListener {
                 it.isChecked = true
@@ -2767,6 +2810,7 @@ class ConfigurationFragment @JvmOverloads constructor(
         }
 
         private var subscriptionCardToken = 0
+        private var lastCardRenderKey: List<Any?>? = null
 
         /**
          * Reads the group (and, for the name fallback, its node names) off the main thread, then draws the card.
@@ -2779,6 +2823,7 @@ class ConfigurationFragment @JvmOverloads constructor(
 
             if (select || !::proxyGroup.isInitialized || !DataStore.showSubscriptionInfoCard) {
                 subscriptionCardToken++
+                lastCardRenderKey = null
                 card.isGone = true
                 return
             }
@@ -2819,6 +2864,17 @@ class ConfigurationFragment @JvmOverloads constructor(
             groupProfileNames: List<String>,
         ) {
             proxyGroup = currentGroup
+            // Shown again with nothing changed (the usual case when switching subscriptions): leave the card alone.
+            // Re-parsing the subscription info (and the node-name fallback) and re-setting every text cost a frame
+            // in the middle of the page switch.
+            val sub0 = currentGroup.subscription
+            val renderKey = listOf<Any?>(
+                isAllGroupsTab, currentGroup.id, currentGroup.type, currentGroup.name, sub0 != null,
+                sub0?.subscriptionUserinfo, sub0?.bytesUsed, sub0?.bytesRemaining, sub0?.expiryDate, sub0?.lastUpdated,
+                groupProfileNames.hashCode(), adapter?.configurationIdList?.size ?: 0,
+            )
+            if (renderKey == lastCardRenderKey && card.isVisible) return
+            lastCardRenderKey = renderKey
 
             val tvTitle = root.findViewById<TextView>(R.id.tv_subscription_title)
             val tvExpire = root.findViewById<TextView>(R.id.tv_expire_date)

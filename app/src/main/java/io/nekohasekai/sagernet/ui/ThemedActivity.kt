@@ -27,6 +27,10 @@ import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.ktx.getColorAttr
 import io.nekohasekai.sagernet.utils.Theme
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 abstract class ThemedActivity : AppCompatActivity {
     constructor() : super()
@@ -136,11 +140,28 @@ abstract class ThemedActivity : AppCompatActivity {
         themeResId = resId
     }
 
+    private var themeCheckToken = 0
+
+    /**
+     * Checks whether the theme changed while the activity was away. The settings are database reads and the wallpaper
+     * colour is a system call; they used to run on the main thread on every return to the app, delaying its first
+     * frames, so they are read in the background and the activity is recreated only when something changed.
+     */
     override fun onResume() {
         super.onResume()
+        val token = ++themeCheckToken
+        lifecycleScope.launch {
+            val changed = withContext(Dispatchers.IO) { runCatching { themeChangedSinceCreate() }.getOrDefault(false) }
+            if (changed && token == themeCheckToken && !isFinishing && !isDestroyed) {
+                ActivityCompat.recreate(this@ThemedActivity)
+            }
+        }
+    }
+
+    private fun themeChangedSinceCreate(): Boolean {
         val currentWallpaperColor = if (DataStore.useSystemTheme) Theme.getSystemWallpaperColor(this) else null
         val currentUsingNight = Theme.usingNightMode(this)
-        if (lastUseSystemTheme != DataStore.useSystemTheme ||
+        return (lastUseSystemTheme != DataStore.useSystemTheme ||
             (DataStore.useSystemTheme && lastWallpaperColor != currentWallpaperColor) ||
             (!DataStore.useSystemTheme && lastAppTheme != DataStore.appTheme) ||
             lastNightTheme != DataStore.nightTheme ||
@@ -148,9 +169,7 @@ abstract class ThemedActivity : AppCompatActivity {
             lastAccent != DataStore.accentTheme ||
             (lastAccent == Theme.CUSTOM && lastAccentColor != DataStore.accentCustomColor) ||
             (lastAppTheme == Theme.CUSTOM_BASE && lastBaseColor != DataStore.baseCustomColor) ||
-            (lastAppTheme == Theme.CUSTOM_BASE_LIGHT && lastBaseLightColor != DataStore.baseCustomLightColor)) {
-            ActivityCompat.recreate(this)
-        }
+            (lastAppTheme == Theme.CUSTOM_BASE_LIGHT && lastBaseLightColor != DataStore.baseCustomLightColor))
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {

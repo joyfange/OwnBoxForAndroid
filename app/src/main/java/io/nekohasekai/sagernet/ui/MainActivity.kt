@@ -620,7 +620,7 @@ class MainActivity : ThemedActivity(),
 
     /**
      * Shows page [id]. The main pages are kept (hidden, not destroyed) when you leave them, so going back to them
-     * is instant; live pages (logs, connections, dashboard) are removed so they stop polling in the background.
+     * is instant; live pages (logs, connections) are removed so they stop polling in the background.
      */
     private fun showPage(@IdRes id: Int): Boolean {
         val fm = supportFragmentManager
@@ -908,9 +908,8 @@ class MainActivity : ThemedActivity(),
     override fun onStop() {
         connection.updateConnectionId(SagerConnection.CONNECTION_ID_MAIN_ACTIVITY_BACKGROUND)
         super.onStop()
-        if (!DataStore.performancePriorityMode) {
-            Libcore.forceGc()
-        }
+        // Freeing the Go heap blocks; keep it off the main thread (onTrimMemory frees it again anyway).
+        if (!DataStore.performancePriorityMode) runOnDefaultDispatcher { runCatching { Libcore.forceGc() } }
     }
 
     override fun onDestroy() {
@@ -949,6 +948,8 @@ class MainActivity : ThemedActivity(),
         private val KEPT_PAGES = setOf(
             R.id.nav_configuration, R.id.nav_group, R.id.nav_route, R.id.nav_settings,
             R.id.nav_tools, R.id.nav_docs, R.id.nav_about,
+            // after its first visit the dashboard stays (its WebView paused while hidden): reopening it is instant
+            R.id.nav_dashboard,
         )
         private val PREWARM_PAGES = listOf(R.id.nav_route, R.id.nav_settings, R.id.nav_group)
         private const val PREWARM_DELAY_MS = 1500L

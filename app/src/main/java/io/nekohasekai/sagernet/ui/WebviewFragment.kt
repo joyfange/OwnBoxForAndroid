@@ -49,12 +49,48 @@ class WebviewFragment : ToolbarFragment(R.layout.layout_webview), Toolbar.OnMenu
         .callTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
         .build()
     lateinit var mWebView: WebView
-    private var progressBar: com.google.android.material.progressindicator.LinearProgressIndicator? = null
 
-    /** A thin bar under the toolbar while the dashboard loads, so a slow page never looks frozen. */
-    private fun setLoading(loading: Boolean) {
-        val bar = progressBar ?: return
-        if (loading) bar.show() else bar.hide()
+    /**
+     * The page is kept (hidden) after its first visit, so opening the dashboard again shows it as it was instead of
+     * loading it from scratch behind the dashboard's own spinner. While hidden the WebView is paused.
+     * A page loaded while the service was off (or that showed our error page) is reloaded when shown again.
+     */
+    @Volatile
+    private var showingError = false
+    private var loadedWhileConnected = false
+
+    private fun pauseWebView() {
+        if (!::mWebView.isInitialized) return
+        mWebView.onPause()
+        mWebView.pauseTimers() // this is the app's only WebView
+    }
+
+    private fun resumeWebView() {
+        if (!::mWebView.isInitialized) return
+        mWebView.resumeTimers()
+        mWebView.onResume()
+    }
+
+    override fun onHiddenChanged(hidden: Boolean) {
+        super.onHiddenChanged(hidden)
+        if (hidden) {
+            pauseWebView()
+            return
+        }
+        resumeWebView()
+        if (::mWebView.isInitialized && DataStore.serviceState.connected && (showingError || !loadedWhileConnected)) {
+            loadDashboard(DataStore.yacdURL)
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (!isHidden) pauseWebView()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!isHidden) resumeWebView()
     }
 
     companion object {
@@ -87,7 +123,6 @@ class WebviewFragment : ToolbarFragment(R.layout.layout_webview), Toolbar.OnMenu
         // webview
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
         mWebView = binding.webview
-        progressBar = binding.webviewProgress
         mWebView.settings.apply {
             domStorageEnabled = true
             javaScriptEnabled = true
@@ -133,17 +168,12 @@ class WebviewFragment : ToolbarFragment(R.layout.layout_webview), Toolbar.OnMenu
             override fun onReceivedError(
                 view: WebView?, request: WebResourceRequest?, error: WebResourceError?
             ) {
+                if (request?.isForMainFrame == true) showingError = true
                 WebViewUtil.onReceivedError(view, request, error)
-            }
-
-            override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
-                super.onPageStarted(view, url, favicon)
-                if (url != null && url != "about:blank") setLoading(true)
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-                setLoading(false)
                 if (url != null) {
                     when (dashboardKind(url)) {
                         DashboardKind.ZASHBOARD -> injectZashboardAutoConnect(view)
@@ -153,11 +183,7 @@ class WebviewFragment : ToolbarFragment(R.layout.layout_webview), Toolbar.OnMenu
                 }
             }
         }
-        mWebView.webChromeClient = object : WebChromeClient() {
-            override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                if (newProgress >= 100) setLoading(false)
-            }
-        }
+        mWebView.webChromeClient = WebChromeClient()
 
         loadDashboard(DataStore.yacdURL)
 
@@ -167,6 +193,7 @@ class WebviewFragment : ToolbarFragment(R.layout.layout_webview), Toolbar.OnMenu
     }
 
     private fun dashboardError(failure: LocalYacdDashboard.Failure): WebResourceResponse {
+        showingError = true
         val message = when (failure) {
             LocalYacdDashboard.Failure.DISCONNECTED -> R.string.dashboard_connect_service
             LocalYacdDashboard.Failure.DISABLED -> R.string.dashboard_enable_api
@@ -455,7 +482,8 @@ class WebviewFragment : ToolbarFragment(R.layout.layout_webview), Toolbar.OnMenu
         val targetUrl = buildEffectiveDashboardUrl(url)
         updateToolbarSubtitle()
         val generation = ++loadGeneration
-        setLoading(true)
+        showingError = false
+        loadedWhileConnected = DataStore.serviceState.connected
         if (dashboardKind(targetUrl) == DashboardKind.LOCAL || !DataStore.serviceState.connected ||
             !(DataStore.enableClashAPI || DataStore.allowAccess)
         ) {
@@ -486,9 +514,9 @@ class WebviewFragment : ToolbarFragment(R.layout.layout_webview), Toolbar.OnMenu
     }
 
     override fun onDestroyView() {
-        progressBar = null
         if (::mWebView.isInitialized) {
             try {
+                mWebView.resumeTimers() // timers are process-wide; never leave them paused
                 mWebView.stopLoading()
                 mWebView.loadUrl("about:blank")
                 mWebView.clearHistory()
