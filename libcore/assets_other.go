@@ -2,4 +2,4 @@
 
 package libcore
 
-func extractAssets() {}
+func extractAssets(includeInternal bool) {}

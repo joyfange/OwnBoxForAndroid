@@ -82,6 +82,10 @@ func InitCore(process, cachePath, internalAssets, externalAssets string,
 	}
 	setupLog(int(maxLogSizeKb)*1024, filepath.Join(cachePath, "neko.log"), isBgProcess, !logEnable)
 
+	// Both processes unpack the geo databases (atomically, so they never see a half-written file): the main process
+	// usually finishes long before the first tap on start, which then finds them ready.
+	assetsPending.Store(true)
+
 	// Set up some component
 	go func() {
 		defer device.DeferPanicToError("InitCore-go", func(err error) { log.Println(err) })
@@ -97,10 +101,7 @@ func InitCore(process, cachePath, internalAssets, externalAssets string,
 			log.Println("ignoring ca.pem in external storage: custom CA must be placed in the app-private files dir")
 		}
 
-		// bg
-		if isBgProcess {
-			extractAssets()
-		}
+		runExtractAssets(isBgProcess)
 	}()
 }
 

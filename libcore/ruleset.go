@@ -12,11 +12,14 @@ package libcore
 // 生成的 .srs 缓存于 <externalAssets>/srs/，db 更新后自动重建。
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/sagernet/sing-box/common/srs"
 	C "github.com/sagernet/sing-box/constant"
@@ -45,6 +48,13 @@ func parseGeoRuleSetPath(path string) (code string, isGeoIP bool, legacy bool, o
 }
 
 func prepareLocalGeoRuleSets(ruleSets []option.RuleSet) error {
+	// The databases may still be unpacking on the first start after install.
+	waitAssetsReady(15 * time.Second)
+	var (
+		wait     sync.WaitGroup
+		errMu    sync.Mutex
+		firstErr error
+	)
 	for i := range ruleSets {
 		rs := &ruleSets[i]
 		if rs.Type != C.RuleSetTypeLocal {
@@ -74,13 +84,64 @@ func prepareLocalGeoRuleSets(ruleSets []option.RuleSet) error {
 		if len(rs.Tag) > 0 {
 			tag = rs.Tag[0]
 		}
-		dstPath, err := convertGeoRuleSetToSRS(tag, code, filepath.Join(externalAssetsPath, dbName), isGeoIP)
-		if err != nil {
-			return fmt.Errorf("rule-set %v: %w", rs.Tag, err)
-		}
-		rs.LocalOptions.Path = dstPath
+		// Rule-sets that still need building are converted side by side (a big geosite list takes a while).
+		wait.Add(1)
+		go func(rs *option.RuleSet, tag, code, dbName string, isGeoIP bool) {
+			defer wait.Done()
+			dstPath, err := convertGeoRuleSetToSRS(tag, code, filepath.Join(externalAssetsPath, dbName), isGeoIP)
+			if err != nil {
+				errMu.Lock()
+				if firstErr == nil {
+					firstErr = fmt.Errorf("rule-set %v: %w", rs.Tag, err)
+				}
+				errMu.Unlock()
+				return
+			}
+			rs.LocalOptions.Path = dstPath
+		}(rs, tag, code, dbName, isGeoIP)
 	}
-	return nil
+	wait.Wait()
+	return firstErr
+}
+
+// PrewarmGeoRuleSets builds the .srs files the geo rule-sets of a config need ahead of time (the app calls it while
+// idle), so pressing start does not wait for the conversion. Cached files are only checked, so a repeat is cheap.
+func PrewarmGeoRuleSets(config string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Println("PrewarmGeoRuleSets:", r)
+		}
+	}()
+	var parsed struct {
+		Route *struct {
+			RuleSet []struct {
+				Type string `json:"type"`
+				Tag  string `json:"tag"`
+				Path string `json:"path"`
+			} `json:"rule_set"`
+		} `json:"route"`
+	}
+	if err := json.Unmarshal([]byte(config), &parsed); err != nil || parsed.Route == nil {
+		return
+	}
+	var ruleSets []option.RuleSet
+	for _, rs := range parsed.Route.RuleSet {
+		if rs.Type != C.RuleSetTypeLocal {
+			continue
+		}
+		item := option.RuleSet{Type: C.RuleSetTypeLocal, Tag: []string{rs.Tag}}
+		item.LocalOptions.Path = rs.Path
+		ruleSets = append(ruleSets, item)
+	}
+	if len(ruleSets) == 0 {
+		return
+	}
+	started := time.Now()
+	if err := prepareLocalGeoRuleSets(ruleSets); err != nil {
+		log.Println("PrewarmGeoRuleSets:", err)
+		return
+	}
+	log.Println("geo rule-sets ready in", time.Since(started))
 }
 
 // prepareRemoteRuleSets 预处理远端 rule-set，配置本地 initial_path 兜底文件。
@@ -140,6 +201,7 @@ func convertGeoRuleSetToSRS(tag string, code string, dbPath string, isGeoIP bool
 
 	var rules []option.HeadlessRule
 	var err error
+	fallback := false
 	if isGeoIP {
 		rules, err = loadGeoIPRules(dbPath, code)
 	} else {
@@ -148,16 +210,30 @@ func convertGeoRuleSetToSRS(tag string, code string, dbPath string, isGeoIP bool
 	if err != nil {
 		log.Printf("Warning: failed to load %s rule code '%s' from %s: %v, writing empty SRS fallback", tag, code, dbPath, err)
 		rules = []option.HeadlessRule{}
+		fallback = true
 	}
 
-	file, err := os.Create(dst)
+	// Write next to the target and rename it into place: the app (prewarm) and the service may build the same
+	// rule-set at once, and a start must never load a half-written file.
+	tmp := fmt.Sprintf("%s.%d.%d.tmp", dst, os.Getpid(), time.Now().UnixNano())
+	file, err := os.Create(tmp)
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
 	err = srs.Write(file, option.PlainRuleSet{Rules: rules}, C.RuleSetVersionCurrent)
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = os.Rename(tmp, dst)
+	}
 	if err != nil {
+		os.Remove(tmp)
 		return "", err
+	}
+	if fallback {
+		// An empty fallback must not pass as an up-to-date cache: date it back so the next start rebuilds it.
+		_ = os.Chtimes(dst, time.Unix(0, 0), time.Unix(0, 0))
 	}
 	return dst, nil
 }

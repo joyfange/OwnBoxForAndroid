@@ -2,6 +2,7 @@ package libcore
 
 import (
 	"fmt"
+	"os"
 
 	geosites "github.com/sagernet/sing-box/common/geosite"
 	C "github.com/sagernet/sing-box/constant"
@@ -44,9 +45,16 @@ func (g *geosite) Rules(code string) ([]option.HeadlessRule, error) {
 // loadGeoSiteRules 从 geosite.db 读取指定代码的规则
 // （替代 fork 的 nekoutils.GetGeoSiteHeadlessRules 钩子）。
 func loadGeoSiteRules(dbPath string, code string) ([]option.HeadlessRule, error) {
-	g := new(geosite)
-	if err := g.Open(dbPath); err != nil {
+	// Open the file here so it is closed afterwards (geosite.Open leaves it open for good).
+	file, err := os.Open(dbPath)
+	if err != nil {
 		return nil, err
 	}
+	defer file.Close()
+	reader, _, err := geosites.NewReader(file)
+	if err != nil {
+		return nil, err
+	}
+	g := &geosite{geositeReader: reader}
 	return g.Rules(code)
 }

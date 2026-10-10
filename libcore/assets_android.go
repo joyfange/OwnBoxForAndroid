@@ -13,7 +13,7 @@ import (
 	"golang.org/x/mobile/asset"
 )
 
-func extractAssets() {
+func extractAssets(includeInternal bool) {
 	useOfficialAssets := intfNB4A.UseOfficialAssets()
 
 	extract := func(name string) {
@@ -25,7 +25,9 @@ func extractAssets() {
 
 	extract(geoipDat)
 	extract(geositeDat)
-	extract(yacdDstFolder)
+	if includeInternal {
+		extract(yacdDstFolder)
+	}
 }
 
 // 这里解压的是 apk 里面的
@@ -112,12 +114,20 @@ func extractAssetName(name string, useOfficialAssets bool) error {
 	}
 
 	extractXz := func(f asset.File) error {
-		tmpXzName := dstName + ".xz"
+		// Unpack next to the target and rename it into place: another process (or a start) never reads a
+		// half-written database, and an interrupted unpack leaves no truncated file behind.
+		suffix := fmt.Sprintf(".%d", os.Getpid())
+		tmpXzName := dstName + suffix + ".xz"
+		tmpName := dstName + suffix + ".tmp"
 		err := extractAsset(f, tmpXzName)
 		if err == nil {
-			err = Unxz(tmpXzName, dstName)
-			os.Remove(tmpXzName)
+			err = Unxz(tmpXzName, tmpName)
+			if err == nil {
+				err = os.Rename(tmpName, dstName)
+			}
 		}
+		os.Remove(tmpXzName)
+		os.Remove(tmpName)
 		if err != nil {
 			return fmt.Errorf("extract xz: %v", err)
 		}
@@ -138,7 +148,9 @@ func extractAssetName(name string, useOfficialAssets bool) error {
 	}
 
 	if f, err := asset.Open(apkPrefix + name + ".xz"); err == nil {
-		extractXz(f)
+		if err := extractXz(f); err != nil {
+			return err
+		}
 	} else if f, err := asset.Open("yacd.zip"); err == nil {
 		os.RemoveAll(dstName)
 		extracZip(f, internalAssetsPath)
@@ -156,12 +168,17 @@ func extractAssetName(name string, useOfficialAssets bool) error {
 
 	} // TODO normal file
 
-	o, err := os.Create(dir + version)
+	tmpVersion := dir + version + fmt.Sprintf(".%d.tmp", os.Getpid())
+	o, err := os.Create(tmpVersion)
 	if err != nil {
 		return fmt.Errorf("create version: %v", err)
 	}
 	_, err = io.WriteString(o, assetVersion)
 	o.Close()
+	if err == nil {
+		err = os.Rename(tmpVersion, dir+version)
+	}
+	os.Remove(tmpVersion)
 	return err
 }
 

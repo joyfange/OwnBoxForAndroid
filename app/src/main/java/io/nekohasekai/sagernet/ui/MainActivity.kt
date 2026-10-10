@@ -120,6 +120,7 @@ class MainActivity : ThemedActivity(),
             currentMainFragment = visiblePage()
         }
         schedulePagePrewarm()
+        prewarmRuleSets()
         onBackPressedDispatcher.addCallback {
             val fragment = currentMainFragment ?: visiblePage()
             if (fragment?.onBackPressed() == true) return@addCallback
@@ -662,6 +663,23 @@ class MainActivity : ThemedActivity(),
         syncMainControls(target, showWhenConnected = false, animate = true)
         updateTrafficSubscription()
         return true
+    }
+
+    /**
+     * Converts the geo rule-sets the selected node's config uses into .srs files while the app is idle. On a fresh
+     * install (or after a rule database update) the start used to do this itself, and the start button spun for a
+     * couple of turns on the first tap. Files already up to date are only checked, so this is cheap afterwards.
+     */
+    private fun prewarmRuleSets() {
+        runOnDefaultDispatcher {
+            kotlinx.coroutines.delay(PREWARM_DELAY_MS)
+            if (DataStore.serviceState != BaseService.State.Stopped) return@runOnDefaultDispatcher
+            runCatching {
+                val profile = io.nekohasekai.sagernet.database.SagerDatabase.proxyDao.getById(DataStore.selectedProxy)
+                    ?: return@runCatching
+                Libcore.prewarmGeoRuleSets(io.nekohasekai.sagernet.fmt.buildConfig(profile).config)
+            }.onFailure { Logs.w(it) }
+        }
     }
 
     /**
